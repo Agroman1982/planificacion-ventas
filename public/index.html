@@ -70,6 +70,7 @@
   .users td,.users th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:14px}
   .users{width:100%;border-collapse:collapse}
   .hide{display:none!important}
+  .repWhoBox{padding:10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
   .pill{font-size:11px;padding:2px 7px;border-radius:999px;background:#eef1f7;color:var(--muted);font-weight:700}
   a.link{color:var(--brand);cursor:pointer;font-weight:600}
   .sum{font-size:13px;color:var(--muted)}
@@ -207,6 +208,10 @@
           <label>Representante</label>
           <select id="iRep"></select>
         </div>
+        <div id="repWho" class="hide">
+          <label>Representante</label>
+          <div class="repWhoBox"><b id="repWhoName"></b> <span class="muted">(tú)</span></div>
+        </div>
         <div style="grid-column:1/-1">
           <label>Observaciones</label>
           <textarea id="iObs" placeholder="Notas de lo ejecutado"></textarea>
@@ -315,8 +320,13 @@
         $('fOwner').value='';
         var reps=us.filter(function(u){return u.role==='rep';});
         fillSelect($('iRep'), reps.map(function(u){return u.id;}));
+        reps.forEach(function(u){ var o=$('iRep').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
         if(reps[0]) $('iRep').value=reps[0].id;
       });
+    } else {
+      // Representante: la actividad se asigna automáticamente a su cuenta (servidor).
+      $('repWho').classList.remove('hide');
+      $('repWhoName').textContent = me.name;
     }
     $('banner').innerHTML = me.role==='admin'
       ? '<b>Modo administrador</b> — ves la programación de <b>todos</b> los vendedores. Usa el filtro de vendedor para ver uno solo.'
