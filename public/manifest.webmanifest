@@ -1,0 +1,15 @@
+{
+  "name": "Planificación de Ventas - Rainbow",
+  "short_name": "Ventas Rainbow",
+  "description": "Programa y reporta tu semana de ventas",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6fb",
+  "theme_color": "#1f6feb",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

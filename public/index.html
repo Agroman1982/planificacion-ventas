@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Planificación Semanal de Ventas</title>
+<meta name="theme-color" content="#1f6feb">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Ventas Rainbow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="apple-touch-startup-image" href="apple-touch-icon.png">
+<style>
+  :root{
+    --bg:#f4f6fb; --card:#fff; --ink:#1f2733; --muted:#6b7686; --line:#e4e8f0;
+    --brand:#1f6feb; --brand-d:#1858c4; --ok:#1a9d5a; --warn:#c9821a; --bad:#c0392b;
+    --shadow:0 1px 3px rgba(20,30,50,.08),0 6px 20px rgba(20,30,50,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+  .wrap{max-width:920px;margin:0 auto;padding:14px}
+  h1{font-size:20px;margin:0}
+  h2{font-size:16px;margin:0 0 10px}
+  button{font:inherit;cursor:pointer;border:none;border-radius:10px;padding:10px 14px;background:var(--brand);color:#fff;font-weight:600}
+  button:hover{background:var(--brand-d)}
+  button.ghost{background:#eef1f7;color:var(--ink)}
+  button.ghost:hover{background:#e2e7f1}
+  button.danger{background:var(--bad)}
+  button.danger:hover{background:#a93226}
+  button.small{padding:6px 10px;font-size:13px;border-radius:8px}
+  input,select,textarea{font:inherit;width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+  textarea{resize:vertical;min-height:60px}
+  label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px;font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}.wrap{padding:10px}}
+  .row-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700}
+  .b-plan{background:#e8f0ff;color:#1f6feb}
+  .b-curso{background:#fff3df;color:#c9821a}
+  .b-ok{background:#e6f7ee;color:#1a9d5a}
+  .b-no{background:#fdeaea;color:#c0392b}
+  .muted{color:var(--muted)}
+  .right{text-align:right}
+  .center{text-align:center}
+  /* login */
+  .login{max-width:360px;margin:8vh auto}
+  .login .card{padding:24px}
+  .err{color:var(--bad);font-size:13px;min-height:18px;margin-top:8px}
+  /* header */
+  .topbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .who{font-weight:700}
+  .who .role{font-size:12px;color:var(--muted);font-weight:600}
+  /* list */
+  .act{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px;margin-bottom:12px}
+  .act .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+  .act .who{font-size:12px}
+  .act .meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-top:8px}
+  @media(max-width:560px){.act .meta{grid-template-columns:1fr}}
+  .act .k{font-size:12px;color:var(--muted);font-weight:600}
+  .act .v{font-size:14px}
+  .money{font-variant-numeric:tabular-nums;font-weight:700}
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(15,22,35,.45);display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto;z-index:50}
+  .modal{background:#fff;border-radius:16px;max-width:560px;width:100%;padding:18px;box-shadow:var(--shadow);margin:4vh 0}
+  .users td,.users th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:14px}
+  .users{width:100%;border-collapse:collapse}
+  .hide{display:none!important}
+  .pill{font-size:11px;padding:2px 7px;border-radius:999px;background:#eef1f7;color:var(--muted);font-weight:700}
+  a.link{color:var(--brand);cursor:pointer;font-weight:600}
+  .sum{font-size:13px;color:var(--muted)}
+  /* calendar */
+  .cal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .cal-nav{display:flex;gap:6px;align-items:center}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .cal-dow{font-size:11px;color:var(--muted);text-align:center;font-weight:700;padding:4px 0}
+  .cal-cell{border:1px solid var(--line);border-radius:10px;min-height:88px;padding:4px;background:#fff;display:flex;flex-direction:column;gap:3px;overflow:hidden}
+  .cal-cell.out{background:#fafbfd;opacity:.5}
+  .cal-cell.today{outline:2px solid var(--brand);outline-offset:-2px}
+  .cal-date{font-size:12px;font-weight:700;color:var(--muted)}
+  .cal-chip{font-size:11px;line-height:1.2;padding:3px 6px;border-radius:7px;color:#fff;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cal-chip:hover{filter:brightness(.94)}
+  .cal-legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:12px;font-size:12px;color:var(--muted)}
+  .cal-dot{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
+  .cal-add{padding:0 4px}
+  .det .k{font-size:12px;color:var(--muted);font-weight:600}
+  .det .v{font-size:14px}
+  @media(max-width:560px){.cal-cell{min-height:66px}.cal-dow{font-size:10px}.cal-date{font-size:11px}.cal-chip{font-size:10px;padding:2px 4px}.det{grid-template-columns:1fr}}
+  .rtbl{border-collapse:collapse;width:100%;font-size:14px}
+  .rtbl th,.rtbl td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left}
+  .rtbl th{font-size:12px;color:var(--muted);font-weight:700;background:#fafbfd}
+  .rtbl td.r,.rtbl th.r{text-align:right;font-variant-numeric:tabular-nums}
+  .rtbl .rtot{font-weight:800;background:#f4f6fb}
+  .rtbl tr:last-child td{border-bottom:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- LOGIN -->
+  <div id="login" class="login">
+    <div class="card">
+      <h1>Planificación de Ventas</h1>
+      <p class="muted" style="margin:6px 0 16px">Inicia sesión para ver tu programación semanal.</p>
+      <div class="grid">
+        <div style="grid-column:1/-1">
+          <label>Usuario</label>
+          <input id="lu" autocomplete="username" placeholder="marco / hector">
+        </div>
+        <div style="grid-column:1/-1">
+          <label>Contraseña</label>
+          <input id="lp" type="password" autocomplete="current-password" placeholder="••••••">
+        </div>
+      </div>
+      <button id="lbtn" style="width:100%;margin-top:14px">Entrar</button>
+      <div id="lerr" class="err"></div>
+    </div>
+  </div>
+
+  <!-- APP -->
+  <div id="app" class="hide">
+    <div class="topbar">
+      <div>
+        <div class="who" id="whoName">—</div>
+        <div class="who"><span class="role" id="whoRole"></span></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ghost small hide" id="csvBtn">Exportar CSV</button>
+        <button class="ghost small hide" id="usersBtn">Gestionar vendedores</button>
+        <button class="ghost small" id="logoutBtn">Salir</button>
+      </div>
+    </div>
+
+    <div class="card" id="banner"></div>
+
+    <!-- Filtros -->
+    <div class="card">
+      <div class="grid">
+        <div>
+          <label>Filtrar por semana</label>
+          <input id="fSemana" placeholder="Ej. Sem 42">
+        </div>
+        <div>
+          <label>Filtrar por estado</label>
+          <select id="fEstado">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div id="adminOwnerWrap" class="hide" style="grid-column:1/-1">
+          <label>Vendedor (vista administrador)</label>
+          <select id="fOwner"></select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="card" style="display:flex;gap:8px;align-items:center">
+      <button id="tabList" class="small">Lista</button>
+      <button id="tabCal" class="small ghost">Calendario</button>
+      <button id="tabRes" class="small ghost">Resumen</button>
+    </div>
+
+    <!-- Formulario -->
+    <div class="card" id="formCard">
+      <div class="row-toolbar">
+        <h2 id="formTitle">Nueva actividad</h2>
+        <button class="ghost small hide" id="cancelEdit">Cancelar edición</button>
+      </div>
+      <div class="grid">
+        <div>
+          <label>Semana</label>
+          <input id="iSemana" placeholder="Sem 42 (13–19 Oct)">
+        </div>
+        <div>
+          <label>Día</label>
+          <input id="iDia" type="date">
+        </div>
+        <div>
+          <label>Ubicación</label>
+          <input id="iUbicacion" placeholder="Zona / ruta / ciudad">
+        </div>
+        <div>
+          <label>Cliente</label>
+          <input id="iCliente" placeholder="Nombre del cliente">
+        </div>
+        <div style="grid-column:1/-1">
+          <label>Trabajo a realizar</label>
+          <textarea id="iTrabajo" placeholder="Qué se va a hacer en la visita"></textarea>
+        </div>
+        <div>
+          <label>Venta a concretar (US$)</label>
+          <input id="iConcretar" type="number" step="0.01" min="0" placeholder="0.00">
+        </div>
+        <div>
+          <label>Estado</label>
+          <select id="iEstado"></select>
+        </div>
+        <div>
+          <label>Venta realizada (US$)</label>
+          <input id="iRealizada" type="number" step="0.01" min="0" placeholder="0.00">
+        </div>
+        <div id="repWrap" class="hide">
+          <label>Representante</label>
+          <select id="iRep"></select>
+        </div>
+        <div style="grid-column:1/-1">
+          <label>Observaciones</label>
+          <textarea id="iObs" placeholder="Notas de lo ejecutado"></textarea>
+        </div>
+      </div>
+      <button id="saveBtn" style="width:100%;margin-top:12px">Guardar actividad</button>
+    </div>
+
+    <div class="row-toolbar" id="listHead">
+      <h2>Actividades <span class="sum" id="count"></span></h2>
+    </div>
+    <div id="list"></div>
+    <div id="empty" class="card center muted hide">Sin actividades todavía.</div>
+
+    <!-- Vista Calendario -->
+    <div id="calView" class="hide"></div>
+
+    <!-- Vista Resumen -->
+    <div id="resView" class="hide"></div>
+  </div>
+
+  <!-- Modal detalle -->
+  <div id="detailModal" class="overlay hide"></div>
+
+  <!-- Modal usuarios -->
+  <div id="usersModal" class="overlay hide">
+    <div class="modal">
+      <div class="row-toolbar">
+        <h2>Vendedores y accesos</h2>
+        <button class="ghost small" id="closeUsers">Cerrar</button>
+      </div>
+      <p class="muted" style="margin:0 0 10px">Agrega, renombra o retira vendedores. Al retirar, sus actividades se eliminan.</p>
+      <table class="users" id="usersTable"></table>
+      <h2 style="margin-top:18px">Agregar vendedor / administrador</h2>
+      <div class="grid">
+        <div><label>Nombre completo</label><input id="nName" placeholder="Ej. Luis Quispe"></div>
+        <div><label>Usuario</label><input id="nUser" placeholder="luis"></div>
+        <div><label>Rol</label>
+          <select id="nRole"><option value="rep">Vendedor</option><option value="admin">Administrador</option></select>
+        </div>
+        <div><label>Contraseña temporal</label><input id="nPass" placeholder="••••••"></div>
+      </div>
+      <button id="addUser" style="width:100%;margin-top:12px">Crear</button>
+      <div id="uErr" class="err"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  var me=null, rows=[], ownerNames={}, estados=[], editingId=null, adminOwner='';
+  var view='list', calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
+  var resMetric='Realizado';
+  var PALETTE=['#1f6feb','#1a9d5a','#c9821a','#8e44ad','#e0566f','#16a085','#d35400','#2c3e50','#2980b9','#27ae60'];
+  function api(method, path, body){
+    return fetch(path,{method:method,headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',body:body?JSON.stringify(body):undefined}).then(function(r){
+      return r.json().then(function(j){ return {ok:r.ok, status:r.status, data:j}; });
+    });
+  }
+  function $(id){return document.getElementById(id);}
+  function esc(s){return (s==null?'':String(s));}
+  function money(n){ n=Number(n)||0; return 'US$ '+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function estadoBadge(e){
+    var c='b-plan'; if(e==='En curso')c='b-curso'; else if(e==='Realizado')c='b-ok'; else if(e==='No realizado')c='b-no';
+    return '<span class="badge '+c+'">'+esc(e)+'</span>';
+  }
+
+  // ---- init ----
+  api('GET','/api/me').then(function(res){
+    if(res.ok){ start(res.data.user, res.data.estados); }
+    else { $('login').classList.remove('hide'); }
+  });
+
+  $('lbtn').onclick=doLogin;
+  $('lp').addEventListener('keydown',function(e){ if(e.key==='Enter') doLogin(); });
+  function doLogin(){
+    $('lerr').textContent='';
+    api('POST','/api/login',{username:$('lu').value.trim(),password:$('lp').value}).then(function(res){
+      if(res.ok){ start(res.data.user, estados); }
+      else $('lerr').textContent=res.data.error||'No se pudo iniciar sesión';
+    });
+  }
+
+  function start(user, ests){
+    me=user; estados=ests||[];
+    $('login').classList.add('hide');
+    $('app').classList.remove('hide');
+    $('whoName').textContent=me.name;
+    $('whoRole').textContent= me.role==='admin'?'Administrador':'Vendedor';
+    // estado selects
+    fillSelect($('iEstado'), estados, 'Planificado');
+    fillSelect($('fEstado'), estados, '');
+    if(me.role==='admin'){
+      $('usersBtn').classList.remove('hide');
+      $('csvBtn').classList.remove('hide');
+      $('adminOwnerWrap').classList.remove('hide');
+      $('repWrap').classList.remove('hide');
+      // Poblar filtros de vendedor al entrar (sin cambiar el filtro activo: default "Todos")
+      api('GET','/api/users').then(function(res){
+        if(!res.ok) return;
+        var us=res.data.users;
+        fillSelect($('fOwner'), us.map(function(u){return u.id;}), '');
+        us.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
+        $('fOwner').value='';
+        var reps=us.filter(function(u){return u.role==='rep';});
+        fillSelect($('iRep'), reps.map(function(u){return u.id;}));
+        if(reps[0]) $('iRep').value=reps[0].id;
+      });
+    }
+    $('banner').innerHTML = me.role==='admin'
+      ? '<b>Modo administrador</b> — ves la programación de <b>todos</b> los vendedores. Usa el filtro de vendedor para ver uno solo.'
+      : 'Estás viendo <b>tu programación semanal</b>. Nadie más puede ver estas actividades.';
+    loadRows();
+  }
+
+  function fillSelect(sel, opts, def){
+    sel.innerHTML='';
+    if(def!==undefined){ var o=document.createElement('option'); o.value=''; o.textContent= def===''?'Todos':def; sel.appendChild(o); }
+    (opts||[]).forEach(function(t){ var o=document.createElement('option'); o.value=t; o.textContent=t; sel.appendChild(o); });
+    if(def!==undefined && def!=='') sel.value=def;
+  }
+
+  // ---- filtros ----
+  ['fSemana','fEstado'].forEach(function(id){ $(id).addEventListener('input',loadRows); });
+  $('fOwner').addEventListener('change',function(){ adminOwner=$('fOwner').value; loadRows(); });
+  $('logoutBtn').onclick=function(){ api('POST','/api/logout').then(function(){ location.reload(); }); };
+
+  // ---- cargar filas ----
+  function loadRows(){
+    var q=[];
+    var s=$('fSemana').value.trim(); if(s) q.push('semana='+encodeURIComponent(s));
+    var e=$('fEstado').value; if(e) q.push('estado='+encodeURIComponent(e));
+    if(me.role==='admin' && adminOwner) q.push('owner='+encodeURIComponent(adminOwner));
+    api('GET','/api/rows'+(q.length?'?'+q.join('&'):'')).then(function(res){
+      if(!res.ok) return;
+      rows=res.data.rows||[]; ownerNames=res.data.ownerNames||{};
+      renderRows();
+      if(view==='cal') renderCalendar();
+      if(view==='res') renderResumen();
+    });
+  }
+
+  function renderRows(){
+    var list=$('list'); list.innerHTML='';
+    $('count').textContent='('+rows.length+')';
+    $('empty').classList.toggle('hide', rows.length>0);
+    rows.forEach(function(r){ list.appendChild(actCard(r)); });
+  }
+
+  function actCard(r){
+    var d=document.createElement('div'); d.className='act';
+    var hd=document.createElement('div'); hd.className='hd';
+    var left=document.createElement('div');
+    var who=document.createElement('div'); who.className='who muted';
+    who.textContent= me.role==='admin' ? (ownerNames[r.ownerId]||'—') : (esc(r.semana)||'Actividad');
+    var sem=document.createElement('div'); sem.style.fontWeight='700'; sem.textContent= esc(r.semana)||'Sin semana';
+    left.appendChild(sem); left.appendChild(who);
+    var right=document.createElement('div');
+    var st=document.createElement('span'); st.innerHTML=estadoBadge(r.estado); right.appendChild(st);
+    hd.appendChild(left); hd.appendChild(right);
+
+    var meta=document.createElement('div'); meta.className='meta';
+    meta.appendChild(kv('Día', r.dia));
+    meta.appendChild(kv('Ubicación', r.ubicacion));
+    meta.appendChild(kv('Cliente', r.cliente));
+    meta.appendChild(kv('Venta a concretar', money(r.ventaConcretar)));
+    meta.appendChild(kv('Trabajo a realizar', r.trabajo));
+    meta.appendChild(kv('Venta realizada', money(r.ventaRealizada)));
+    var obsK=kv('Observaciones', r.observaciones); obsK.style.gridColumn='1/-1'; meta.appendChild(obsK);
+
+    d.appendChild(hd); d.appendChild(meta);
+
+    var canEdit = me.role==='admin' || r.ownerId===me.id;
+    if(canEdit){
+      var tb=document.createElement('div'); tb.style.marginTop='10px'; tb.style.display='flex'; tb.style.gap='8px'; tb.style.justifyContent='flex-end';
+      var ed=document.createElement('button'); ed.className='ghost small'; ed.textContent='Editar'; ed.onclick=function(){ openForm(r); };
+      var del=document.createElement('button'); del.className='danger small'; del.textContent='Eliminar'; del.onclick=function(){ delRow(r.id); };
+      tb.appendChild(ed); tb.appendChild(del); d.appendChild(tb);
+    }
+    return d;
+  }
+  function kv(k,v){
+    var c=document.createElement('div');
+    var kk=document.createElement('div'); kk.className='k'; kk.textContent=k;
+    var vv=document.createElement('div'); vv.className='v'; vv.textContent=esc(v)||'—';
+    c.appendChild(kk); c.appendChild(vv); return c;
+  }
+
+  // ---- formulario ----
+  $('saveBtn').onclick=function(){
+    var body={
+      semana:$('iSemana').value.trim(), dia:$('iDia').value, ubicacion:$('iUbicacion').value.trim(),
+      cliente:$('iCliente').value.trim(), trabajo:$('iTrabajo').value.trim(),
+      ventaConcretar:$('iConcretar').value, estado:$('iEstado').value,
+      ventaRealizada:$('iRealizada').value, observaciones:$('iObs').value.trim()
+    };
+    if(me.role==='admin') body.ownerId=$('iRep').value;
+    var p = editingId ? api('PUT','/api/rows/'+editingId,body) : api('POST','/api/rows',body);
+    p.then(function(res){
+      if(res.ok){ resetForm(); loadRows(); }
+      else alert(res.data.error||'No se pudo guardar');
+    });
+  };
+  $('cancelEdit').onclick=resetForm;
+
+  function openForm(r){
+    editingId=r.id; $('formTitle').textContent='Editando actividad';
+    $('cancelEdit').classList.remove('hide');
+    $('iSemana').value=r.semana||''; $('iDia').value=r.dia||''; $('iUbicacion').value=r.ubicacion||'';
+    $('iCliente').value=r.cliente||''; $('iTrabajo').value=r.trabajo||'';
+    $('iConcretar').value=r.ventaConcretar||''; $('iEstado').value=r.estado||'Planificado';
+    $('iRealizada').value=r.ventaRealizada||''; $('iObs').value=r.observaciones||'';
+    if(me.role==='admin'){ loadUserOptions(); $('iRep').value=r.ownerId; }
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  function resetForm(){
+    editingId=null; $('formTitle').textContent='Nueva actividad'; $('cancelEdit').classList.add('hide');
+    ['iSemana','iDia','iUbicacion','iCliente','iTrabajo','iConcretar','iRealizada','iObs'].forEach(function(id){$(id).value='';});
+    $('iEstado').value='Planificado';
+    if(me.role==='admin' && adminOwner) $('iRep').value=adminOwner;
+  }
+  function delRow(id){
+    if(!confirm('¿Eliminar esta actividad?')) return;
+    api('DELETE','/api/rows/'+id).then(function(res){ if(res.ok) loadRows(); else alert(res.data.error||'No se pudo eliminar'); });
+  }
+
+  // ---- administrador: panel de vendedores ----
+  $('usersBtn').onclick=function(){
+    loadUsers(); $('usersModal').classList.remove('hide');
+  };
+  $('closeUsers').onclick=function(){ $('usersModal').classList.add('hide'); };
+  $('usersModal').addEventListener('click',function(e){ if(e.target===$('usersModal')) $('usersModal').classList.add('hide'); });
+
+  function loadUserOptions(){
+    api('GET','/api/users').then(function(res){
+      if(!res.ok) return;
+      var reps=res.data.users.filter(function(u){return u.role==='rep';});
+      fillSelect($('iRep'), reps.map(function(u){return u.id;}), '');
+      reps.forEach(function(u){ var o=$('iRep').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
+      if(!adminOwner && reps[0]) adminOwner=reps[0].id;
+      if(adminOwner) $('iRep').value=adminOwner;
+      // filtro admin
+      var cur=adminOwner;
+      fillSelect($('fOwner'), res.data.users.map(function(u){return u.id;}), '');
+      $('fOwner').querySelector('option[value=""]').textContent='Todos';
+      res.data.users.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
+      if(cur) $('fOwner').value=cur;
+    });
+  }
+  function loadUsers(){
+    api('GET','/api/users').then(function(res){
+      if(!res.ok) return;
+      var t=$('usersTable'); t.innerHTML='';
+      var head=document.createElement('tr');
+      ['Nombre','Usuario','Rol','Acciones'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
+      t.appendChild(head);
+      res.data.users.forEach(function(u){
+        var tr=document.createElement('tr');
+        tr.appendChild(td(u.name+(u.id===me.id?' (tú)':'')));
+        tr.appendChild(td(u.username));
+        tr.appendChild(td(u.role==='admin'?'<span class="pill">Admin</span>':'<span class="pill">Vendedor</span>'));
+        var acc=document.createElement('td');
+        var ren=document.createElement('button'); ren.className='ghost small'; ren.textContent='Renombrar'; ren.onclick=function(){ renameUser(u); };
+        var rp=document.createElement('button'); rp.className='ghost small'; rp.textContent='Clave'; rp.onclick=function(){ resetPass(u); };
+        acc.appendChild(ren); acc.appendChild(document.createTextNode(' ')); acc.appendChild(rp);
+        if(u.id!==me.id){ var rm=document.createElement('button'); rm.className='danger small'; rm.textContent='Retirar';
+          rm.onclick=function(){ if(confirm('Retirar a '+u.name+' y sus actividades?')) api('DELETE','/api/users/'+u.id).then(function(r){ if(r.ok) loadUsers(); else alert(r.data.error); }); };
+          acc.appendChild(document.createTextNode(' ')); acc.appendChild(rm);
+        }
+        tr.appendChild(acc); t.appendChild(tr);
+      });
+    });
+  }
+  function td(html){ var c=document.createElement('td'); c.innerHTML=html; return c; }
+  function renameUser(u){
+    var n=prompt('Nuevo nombre para '+u.name, u.name); if(!n) return;
+    var nu=prompt('Nuevo usuario (dejar igual si no cambia)', u.username);
+    api('PUT','/api/users/'+u.id,{name:n,username:nu||u.username}).then(function(r){ if(r.ok) loadUsers(); else alert(r.data.error); });
+  }
+  function resetPass(u){
+    var p=prompt('Nueva contraseña temporal para '+u.name); if(!p) return;
+    api('PUT','/api/users/'+u.id,{password:p}).then(function(r){ if(r.ok) alert('Contraseña actualizada'); else alert(r.data.error); });
+  }
+  $('addUser').onclick=function(){
+    $('uErr').textContent='';
+    api('POST','/api/users',{name:$('nName').value.trim(),username:$('nUser').value.trim(),role:$('nRole').value,password:$('nPass').value}).then(function(r){
+      if(r.ok){ $('nName').value='';$('nUser').value='';$('nPass').value=''; loadUsers(); if(me.role==='admin') loadUserOptions(); }
+      else $('uErr').textContent=r.data.error;
+    });
+  };
+
+  // ---- exportar CSV (admin) ----
+  $('csvBtn').onclick=function(){
+    var lines=['Representante,Semana,Dia,Ubicacion,Cliente,Trabajo,Venta a concretar,Estado,Venta realizada,Observaciones'];
+    rows.forEach(function(r){
+      lines.push([ownerNames[r.ownerId]||'',r.semana,r.dia,r.ubicacion,r.cliente,r.trabajo,r.ventaConcretar,r.estado,r.ventaRealizada,r.observaciones]
+        .map(function(v){ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(','));
+    });
+    var blob=new Blob([lines.join('\n')],{type:'text/csv'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='planificacion_ventas.csv'; a.click();
+  };
+  // ---- vista Calendario ----
+  function estadoColor(e){ return e==='Realizado'?'#1a9d5a': e==='En curso'?'#c9821a': e==='No realizado'?'#c0392b':'#1f6feb'; }
+  function detailKV(k,v){ return '<div><div class="k">'+k+'</div><div class="v">'+esc(v||'—')+'</div></div>'; }
+
+  $('tabList').onclick=showList;
+  $('tabCal').onclick=showCal;
+  $('tabRes').onclick=showRes;
+  $('calView').addEventListener('click', function(e){
+    var chip=e.target.closest('.cal-chip');
+    if(chip && chip.getAttribute('data-rid')){ openDetail(chip.getAttribute('data-rid')); return; }
+    var add=e.target.closest('.cal-add');
+    if(add){ addOnDay(add.getAttribute('data-day')); }
+  });
+
+  function showList(){
+    view='list';
+    $('tabList').classList.remove('ghost'); $('tabCal').classList.add('ghost'); $('tabRes').classList.add('ghost');
+    $('formCard').classList.remove('hide'); $('listHead').classList.remove('hide');
+    $('list').classList.remove('hide'); $('empty').classList.remove('hide');
+    $('calView').classList.add('hide'); $('resView').classList.add('hide');
+  }
+  function showCal(){
+    view='cal';
+    $('tabCal').classList.remove('ghost'); $('tabList').classList.add('ghost'); $('tabRes').classList.add('ghost');
+    $('formCard').classList.add('hide'); $('listHead').classList.add('hide');
+    $('list').classList.add('hide'); $('empty').classList.add('hide');
+    $('calView').classList.remove('hide'); $('resView').classList.add('hide');
+    renderCalendar();
+  }
+  function addOnDay(day){ showList(); $('iDia').value=day; window.scrollTo({top:0,behavior:'smooth'}); $('iCliente').focus(); }
+
+  function renderCalendar(){
+    var monthNames=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    var byDay={}, ownerIds=[];
+    rows.forEach(function(r){
+      if(!r.dia) return;
+      var d=r.dia.slice(0,10);
+      (byDay[d]=byDay[d]||[]).push(r);
+      if(ownerIds.indexOf(r.ownerId)<0) ownerIds.push(r.ownerId);
+    });
+    ownerIds.sort();
+    var ownerColor={}; ownerIds.forEach(function(id,i){ ownerColor[id]=PALETTE[i%PALETTE.length]; });
+    var first=new Date(calYear,calMonth,1);
+    var startDow=first.getDay();
+    var daysInMonth=new Date(calYear,calMonth+1,0).getDate();
+    var todayStr=new Date().toISOString().slice(0,10);
+    var cells=[]; for(var i=0;i<startDow;i++) cells.push(null);
+    for(var d=1;d<=daysInMonth;d++) cells.push(d);
+    while(cells.length%7!==0) cells.push(null);
+    var html='<div class="cal-head"><div class="cal-nav">'
+      +'<button class="ghost small" id="calPrev">‹</button>'
+      +'<b style="min-width:130px;text-align:center">'+monthNames[calMonth]+' '+calYear+'</b>'
+      +'<button class="ghost small" id="calNext">›</button></div>'
+      +'<div style="display:flex;gap:8px;align-items:center">'
+      +'<button class="ghost small" id="calToday">Hoy</button>';
+    if(me.role==='admin'){ html+='<select id="calOwner" class="small" style="max-width:190px"></select>'; }
+    html+='</div></div>';
+    html+='<div class="cal-grid">';
+    ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].forEach(function(w){ html+='<div class="cal-dow">'+w+'</div>'; });
+    cells.forEach(function(d){
+      if(d===null){ html+='<div class="cal-cell out"></div>'; return; }
+      var ds=calYear+'-'+String(calMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+      var cls='cal-cell'+(ds===todayStr?' today':'');
+      html+='<div class="'+cls+'"><div style="display:flex;justify-content:space-between;align-items:center">'
+        +'<span class="cal-date">'+d+'</span>'
+        +'<span class="cal-add" data-day="'+ds+'" title="Agregar en este día" style="cursor:pointer;color:var(--brand);font-weight:700">+</span></div>';
+      (byDay[ds]||[]).forEach(function(r){
+        var color = me.role==='admin' ? (ownerColor[r.ownerId]||'#888') : estadoColor(r.estado);
+        var label = esc(r.cliente|| r.trabajo || 'Actividad');
+        var tip = (me.role==='admin'?(ownerNames[r.ownerId]||'')+' — ':'') + esc(r.cliente||'') + ' · ' + esc(r.estado);
+        html+='<div class="cal-chip" data-rid="'+r.id+'" title="'+tip.replace(/"/g,'&quot;')+'" style="background:'+color+'">'+label+'</div>';
+      });
+      html+='</div>';
+    });
+    html+='</div>';
+    if(me.role==='admin'){
+      html+='<div class="cal-legend">';
+      ownerIds.forEach(function(id){ html+='<span><i class="cal-dot" style="background:'+ownerColor[id]+'"></i>'+(ownerNames[id]||id)+'</span>'; });
+      html+='</div>';
+    }
+    $('calView').innerHTML=html;
+    if(me.role==='admin' && $('fOwner').options.length){
+      var co=$('calOwner');
+      co.innerHTML='';
+      Array.prototype.forEach.call($('fOwner').options, function(o){ var op=document.createElement('option'); op.value=o.value; op.textContent=o.textContent; co.appendChild(op); });
+      co.value=adminOwner;
+      co.onchange=function(){ adminOwner=co.value; $('fOwner').value=adminOwner; loadRows(); };
+    }
+    $('calPrev').onclick=function(){ calMonth--; if(calMonth<0){calMonth=11;calYear--;} renderCalendar(); };
+    $('calNext').onclick=function(){ calMonth++; if(calMonth>11){calMonth=0;calYear++;} renderCalendar(); };
+    $('calToday').onclick=function(){ var t=new Date(); calYear=t.getFullYear(); calMonth=t.getMonth(); renderCalendar(); };
+  }
+
+  function openDetail(id){
+    var r=rows.find(function(x){return x.id===id;}); if(!r) return;
+    var canEdit = me.role==='admin' || r.ownerId===me.id;
+    var html='<div class="row-toolbar"><h2>Detalle de actividad</h2><button class="ghost small" id="closeDetail">Cerrar</button></div>';
+    html+='<div class="det" style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:6px">';
+    if(me.role==='admin') html+=detailKV('Representante', ownerNames[r.ownerId]||'—');
+    html+=detailKV('Semana', r.semana);
+    html+=detailKV('Día', r.dia);
+    html+=detailKV('Ubicación', r.ubicacion);
+    html+=detailKV('Cliente', r.cliente);
+    html+=detailKV('Trabajo a realizar', r.trabajo);
+    html+=detailKV('Venta a concretar', money(r.ventaConcretar));
+    html+=detailKV('Venta realizada', money(r.ventaRealizada));
+    html+=detailKV('Observaciones', r.observaciones);
+    html+='</div>';
+    html+='<div style="margin-top:12px"><span class="k">Estado</span> '+estadoBadge(r.estado)+'</div>';
+    if(canEdit){
+      html+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">';
+      html+='<button class="ghost small" id="dEdit">Editar</button>';
+      html+='<button class="danger small" id="dDel">Eliminar</button>';
+      html+='</div>';
+    }
+    $('detailModal').innerHTML='<div class="modal">'+html+'</div>';
+    $('detailModal').classList.remove('hide');
+    $('closeDetail').onclick=closeDetail;
+    $('detailModal').onclick=function(e){ if(e.target===$('detailModal')) closeDetail(); };
+    if(canEdit){
+      $('dEdit').onclick=function(){ closeDetail(); showList(); openForm(r); };
+      $('dDel').onclick=function(){ closeDetail(); delRow(r.id); };
+    }
+  }
+  function closeDetail(){ $('detailModal').classList.add('hide'); }
+
+  // ---- vista Resumen (totales) ----
+  function pct(real, plan){ if(plan>0) return (real/plan*100); if(real>0) return 100; return 0; }
+  function renderResumen(){
+    if(!rows.length){ $('resView').innerHTML='<div class="card center muted">Sin actividades para resumir.</div>'; return; }
+    var weeks={}; rows.forEach(function(r){ if(r.semana) weeks[r.semana]=1; });
+    var weekList=Object.keys(weeks).sort();
+    var aggP={}, aggR={}, vend={};
+    rows.forEach(function(r){
+      var vid=r.ownerId, w=r.semana||'—';
+      aggP[vid]=aggP[vid]||{}; aggP[vid][w]=(aggP[vid][w]||0)+Number(r.ventaConcretar||0);
+      aggR[vid]=aggR[vid]||{}; aggR[vid][w]=(aggR[vid][w]||0)+Number(r.ventaRealizada||0);
+      vend[vid]=1;
+    });
+    var vendorIds=Object.keys(vend).sort();
+    var single = (me.role!=='admin') || (adminOwner!=='');
+
+    if(single && vendorIds.length){
+      var vid=vendorIds[0];
+      var vname = me.role==='admin' ? (ownerNames[vid]||'—') : me.name;
+      var html='<div class="row-toolbar"><h2>Resumen de '+esc(vname)+'</h2>'
+        +'<button class="ghost small" id="resExport">Exportar a Excel</button></div>';
+      html+='<h2 class="muted" style="font-size:14px;font-weight:700">Planificado vs Realizado por semana</h2>';
+      html+='<table class="rtbl"><tr><th>Semana</th><th class="r">Planificado</th><th class="r">Realizado</th><th class="r">% Cumplimiento</th></tr>';
+      var tP=0,tR=0;
+      weekList.forEach(function(w){ var p=aggP[vid][w]||0, rl=aggR[vid][w]||0; tP+=p; tR+=rl;
+        html+='<tr><td>'+esc(w)+'</td><td class="r">'+money(p)+'</td><td class="r">'+money(rl)+'</td><td class="r">'+pct(rl,p).toFixed(0)+'%</td></tr>'; });
+      html+='<tr class="rtot"><td>Total del mes</td><td class="r">'+money(tP)+'</td><td class="r">'+money(tR)+'</td><td class="r">'+pct(tR,tP).toFixed(0)+'%</td></tr></table>';
+      var byClient={};
+      rows.forEach(function(r){ var c=r.cliente||'—'; if(!byClient[c]) byClient[c]={n:0,plan:0,real:0}; byClient[c].n++; byClient[c].plan+=Number(r.ventaConcretar||0); byClient[c].real+=Number(r.ventaRealizada||0); });
+      html+='<h2 style="margin-top:16px">Total por cliente</h2>';
+      html+='<table class="rtbl"><tr><th>Cliente</th><th class="r">Activ.</th><th class="r">Planificado</th><th class="r">Realizado</th><th class="r">% Cump.</th></tr>';
+      Object.keys(byClient).sort().forEach(function(c){ var x=byClient[c]; html+='<tr><td>'+esc(c)+'</td><td class="r">'+x.n+'</td><td class="r">'+money(x.plan)+'</td><td class="r">'+money(x.real)+'</td><td class="r">'+pct(x.real,x.plan).toFixed(0)+'%</td></tr>'; });
+      var gp=0,gr=0; Object.keys(byClient).forEach(function(c){ gp+=byClient[c].plan; gr+=byClient[c].real; });
+      html+='<tr class="rtot"><td>Total</td><td class="r">—</td><td class="r">'+money(gp)+'</td><td class="r">'+money(gr)+'</td><td class="r">'+pct(gr,gp).toFixed(0)+'%</td></tr></table>';
+      $('resView').innerHTML=html;
+      $('resExport').onclick=exportResumen;
+      return;
+    }
+    // matrix multi-vendor
+    var metricOpts='<option value="Realizado">Realizado</option><option value="Planificado">Planificado</option><option value="Comparativo">Comparativo</option>';
+    var html='<div class="row-toolbar"><h2>Venta total por vendedor y semana</h2>'
+      +'<div style="display:flex;gap:6px;align-items:center"><span class="muted">Ver:</span>'
+      +'<select id="resMetric" class="small">'+metricOpts+'</select>'
+      +'<button class="ghost small" id="resExport">Exportar a Excel</button></div></div>';
+    if(resMetric==='Comparativo'){
+      html+='<div style="overflow-x:auto"><table class="rtbl"><tr><th>Vendedor</th><th class="r">Planificado (mes)</th><th class="r">Realizado (mes)</th><th class="r">% Cumplimiento</th></tr>';
+      var gP=0,gR=0;
+      vendorIds.forEach(function(vid){
+        var p=0,r2=0; weekList.forEach(function(w){ p+=(aggP[vid][w]||0); r2+=(aggR[vid][w]||0); });
+        gP+=p; gR+=r2; var nm=ownerNames[vid]||vid;
+        html+='<tr><td>'+esc(nm)+'</td><td class="r">'+money(p)+'</td><td class="r">'+money(r2)+'</td><td class="r">'+pct(r2,p).toFixed(0)+'%</td></tr>';
+      });
+      html+='<tr class="rtot"><td>Total general</td><td class="r">'+money(gP)+'</td><td class="r">'+money(gR)+'</td><td class="r">'+pct(gR,gP).toFixed(0)+'%</td></tr></table></div>';
+    } else {
+      var field = resMetric==='Realizado' ? 'ventaRealizada' : 'ventaConcretar';
+      var agg = resMetric==='Realizado' ? aggR : aggP;
+      html+='<div style="overflow-x:auto"><table class="rtbl"><tr><th>Vendedor</th>';
+      weekList.forEach(function(w){ html+='<th class="r">'+esc(w)+'</th>'; });
+      html+='<th class="r">Total mes</th></tr>';
+      var grandWeek={}, grandTotal=0;
+      vendorIds.forEach(function(vid){
+        var name=ownerNames[vid]||vid; var vt=0;
+        html+='<tr><td>'+esc(name)+'</td>';
+        weekList.forEach(function(w){ var s=agg[vid][w]||0; grandWeek[w]=(grandWeek[w]||0)+s; vt+=s; html+='<td class="r">'+money(s)+'</td>'; });
+        grandTotal+=vt; html+='<td class="r rtot">'+money(vt)+'</td></tr>';
+      });
+      html+='<tr class="rtot"><td>Total general</td>';
+      weekList.forEach(function(w){ html+='<td class="r">'+money(grandWeek[w]||0)+'</td>'; });
+      html+='<td class="r">'+money(grandTotal)+'</td></tr>';
+      html+='</table></div>';
+    }
+    $('resView').innerHTML=html;
+    $('resMetric').value=resMetric;
+    $('resMetric').onchange=function(){ resMetric=$('resMetric').value; renderResumen(); };
+    $('resExport').onclick=exportResumen;
+  }
+
+  function exportResumen(){
+    var D=';'; // separador para Excel en español
+    function ef(n){ return (Number(n)||0).toFixed(2).replace('.',','); }
+    function pc(rl,pl){ var v=pl>0?rl/pl*100:(rl>0?100:0); return v.toFixed(1).replace('.',',')+'%'; }
+    var lines=[];
+    var weeks={}; rows.forEach(function(r){ if(r.semana) weeks[r.semana]=1; });
+    var weekList=Object.keys(weeks).sort();
+    var single=(me.role!=='admin')||(adminOwner!=='');
+    if(single && rows.length){
+      var vid=(me.role!=='admin')?me.id:adminOwner;
+      var vname=me.role==='admin'?(ownerNames[vid]||'—'):me.name;
+      var bc={};
+      rows.forEach(function(r){ var c=r.cliente||'—'; if(!bc[c]) bc[c]={n:0,p:0,rl:0}; bc[c].n++; bc[c].p+=Number(r.ventaConcretar||0); bc[c].rl+=Number(r.ventaRealizada)||0; });
+      lines.push('Resumen de '+vname);
+      lines.push('Cliente'+D+'Actividades'+D+'Planificado'+D+'Realizado'+D+'% Cumplimiento');
+      Object.keys(bc).sort().forEach(function(c){ var x=bc[c]; lines.push([c,x.n,ef(x.p),ef(x.rl),pc(x.rl,x.p)].join(D)); });
+    } else if(rows.length){
+      if(resMetric==='Comparativo'){
+        lines.push('Venta total por vendedor (Comparativo)');
+        lines.push('Vendedor'+D+'Planificado'+D+'Realizado'+D+'% Cumplimiento');
+        var aggP2={},aggR2={};
+        rows.forEach(function(r){ aggP2[r.ownerId]=aggP2[r.ownerId]||{}; aggP2[r.ownerId][r.semana]=(aggP2[r.ownerId][r.semana]||0)+Number(r.ventaConcretar||0); aggR2[r.ownerId]=aggR2[r.ownerId]||{}; aggR2[r.ownerId][r.semana]=(aggR2[r.ownerId][r.semana]||0)+Number(r.ventaRealizada||0); });
+        var gP=0,gR=0;
+        Object.keys(aggP2).sort().forEach(function(vid){ var p=0,r2=0; weekList.forEach(function(w){ p+=(aggP2[vid][w]||0); r2+=(aggR2[vid][w]||0); }); gP+=p; gR+=r2; lines.push([ownerNames[vid]||vid,ef(p),ef(r2),pc(r2,p)].join(D)); });
+        lines.push(['Total general',ef(gP),ef(gR),pc(gR,gP)].join(D));
+      } else {
+        var field=resMetric==='Realizado'?'ventaRealizada':'ventaConcretar';
+        lines.push('Venta total por vendedor y semana ('+resMetric+')');
+        lines.push(['Vendedor'].concat(weekList).concat(['Total mes']).join(D));
+        var agg3={}; rows.forEach(function(r){ agg3[r.ownerId]=agg3[r.ownerId]||{}; agg3[r.ownerId][r.semana]=(agg3[r.ownerId][r.semana]||0)+Number(r[field]||0); });
+        Object.keys(agg3).sort().forEach(function(vid){ var vt=0; var row=[ownerNames[vid]||vid]; weekList.forEach(function(w){ var s=agg3[vid][w]||0; vt+=s; row.push(ef(s)); }); row.push(ef(vt)); lines.push(row.join(D)); });
+      }
+    }
+    if(!lines.length) return;
+    var blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='resumen_ventas.csv'; a.click();
+  }
+
+  function showRes(){
+    view='res';
+    $('tabRes').classList.remove('ghost'); $('tabList').classList.add('ghost'); $('tabCal').classList.add('ghost');
+    $('formCard').classList.add('hide'); $('listHead').classList.add('hide');
+    $('list').classList.add('hide'); $('empty').classList.add('hide');
+    $('calView').classList.add('hide'); $('resView').classList.remove('hide');
+    renderResumen();
+  }
+
+})();
+</script>
+</body>
+</html>

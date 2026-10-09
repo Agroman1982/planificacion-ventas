@@ -1,0 +1,26 @@
+# Blueprint de Render para la app de Planificación de Ventas (Rainbow).
+# Despliega un Web Service con un disco persistente para que los datos
+# de los representantes NO se pierdan al reiniciarse el servicio.
+#
+# Nota: el disco persistente requiere un plan de pago (starter, ~$7/mes).
+# El plan gratis ("free") no soporta discos y borraría los datos al reiniciar.
+
+services:
+  - type: web
+    name: planificacion-ventas-rainbow
+    runtime: node
+    plan: starter
+    region: oregon          # cambia a la región más cercana si quieres
+    branch: main            # usa "master" si tu repo usa esa rama por defecto
+    buildCommand: "npm install"
+    startCommand: "node server.js"
+    healthCheckPath: "/"
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATA_DIR       # el disco se monta en /data
+        value: "/data"
+    disk:
+      name: datos-ventas
+      mountPath: /data
+      sizeGB: 1
