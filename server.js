@@ -170,7 +170,10 @@ const server = http.createServer(async (req, res) => {
           '.txt': 'text/plain; charset=utf-8',
         };
         const ct = types[ext] || 'application/octet-stream';
-        res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'public, max-age=3600' });
+        // HTML no debe quedar en caché del navegador (así los reps ven las mejoras al instante).
+        // Los íconos y el manifest sí se pueden cachear un rato.
+        const cacheCtl = ext === '.html' ? 'no-store, no-cache, must-revalidate' : 'public, max-age=3600';
+        res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': cacheCtl });
         return fs.createReadStream(file).pipe(res);
       }
       if (rel === '/index.html') return sendJSON(res, 404, { error: 'No encontrado' });
