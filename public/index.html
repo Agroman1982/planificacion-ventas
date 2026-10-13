@@ -341,6 +341,50 @@
     if(def!==undefined && def!=='') sel.value=def;
   }
 
+  // ---- semana automática a partir de la fecha ----
+  var MES_ABBR = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  function parseFechaLocal(yyyymmdd){
+    // "YYYY-MM-DD" -> Date local (medianoche), evita desfase por UTC.
+    if(!yyyymmdd) return null;
+    var p=yyyymmdd.split('-'); return new Date(+p[0], +p[1]-1, +p[2]);
+  }
+  function lunesDeSemana(d){
+    // Semana ISO = lunes a domingo. Devuelve el lunes de la semana que contiene a d.
+    var day = d.getDay() || 7; // domingo -> 7
+    var lun = new Date(d.getFullYear(), d.getMonth(), d.getDate() - (day - 1));
+    return lun;
+  }
+  function numSemanaISO(d){
+    // Algoritmo estándar ISO-8601: número de semana del año al que pertenece el jueves de esa semana.
+    var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    var dow = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - dow);
+    var yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil((((t - yearStart) / 86400000) + 1) / 7);
+  }
+  function etiquetaSemana(yyyymmdd){
+    var d = parseFechaLocal(yyyymmdd); if(!d) return '';
+    var lun = lunesDeSemana(d);
+    var dom = new Date(lun.getFullYear(), lun.getMonth(), lun.getDate() + 6);
+    var n = numSemanaISO(d);
+    var rango;
+    if(lun.getMonth() === dom.getMonth()){
+      rango = lun.getDate() + '-' + dom.getDate() + ' ' + MES_ABBR[dom.getMonth()];
+    } else {
+      rango = lun.getDate() + ' ' + MES_ABBR[lun.getMonth()] + '-' + dom.getDate() + ' ' + MES_ABBR[dom.getMonth()];
+    }
+    return 'Sem ' + n + ' (' + rango + ')';
+  }
+  // Al elegir/cambiar la fecha, autollenar la semana (formato "Sem N (dd-dd Mmm)").
+  document.addEventListener('DOMContentLoaded', function(){
+    var dia = $('iDia'); if(!dia) return;
+    dia.addEventListener('change', function(){
+      var v = this.value; // "YYYY-MM-DD"
+      if(!v) return;
+      $('iSemana').value = etiquetaSemana(v);
+    });
+  });
+
   // ---- filtros ----
   ['fSemana','fEstado'].forEach(function(id){ $(id).addEventListener('input',loadRows); });
   $('fOwner').addEventListener('change',function(){ adminOwner=$('fOwner').value; loadRows(); });
