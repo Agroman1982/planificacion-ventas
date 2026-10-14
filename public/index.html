@@ -272,6 +272,34 @@
     </div>
   </div>
 
+  <!-- Modal editar usuario -->
+  <div id="editUserModal" class="overlay hide">
+    <div class="modal">
+      <div class="row-toolbar">
+        <h2>Editar usuario</h2>
+        <button class="ghost small" id="closeEditUser">Cerrar</button>
+      </div>
+      <p class="muted" style="margin:0 0 10px">Modifica nombre, usuario, rol o supervisor. Para cambiar la contraseña, usa el botón "Clave" en la lista.</p>
+      <div class="grid">
+        <div><label>Nombre completo</label><input id="eName" placeholder="Nombre"></div>
+        <div><label>Usuario</label><input id="eUser" placeholder="usuario"></div>
+        <div><label>Rol</label>
+          <select id="eRole">
+            <option value="retail">Vendedor Retail</option>
+            <option value="kam">KAM (vendedor Agroindustria)</option>
+            <option value="supervisor">Supervisor</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+        <div><label>Supervisor (solo para vendedores)</label>
+          <select id="eSup"><option value="">(sin supervisor)</option></select>
+        </div>
+      </div>
+      <button id="saveEditUser" style="width:100%;margin-top:12px">Guardar cambios</button>
+      <div id="eErr" class="err"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -570,9 +598,9 @@
         if(u.supervisorId){ var s=us.find(function(x){return x.id===u.supervisorId;}); if(s) supName=s.name; }
         tr.appendChild(td(supName));
         var acc=document.createElement('td');
-        var ren=document.createElement('button'); ren.className='ghost small'; ren.textContent='Renombrar'; ren.onclick=function(){ renameUser(u); };
+        var ed=document.createElement('button'); ed.className='ghost small'; ed.textContent='Editar'; ed.onclick=function(){ openEditUser(u); };
         var rp=document.createElement('button'); rp.className='ghost small'; rp.textContent='Clave'; rp.onclick=function(){ resetPass(u); };
-        acc.appendChild(ren); acc.appendChild(document.createTextNode(' ')); acc.appendChild(rp);
+        acc.appendChild(ed); acc.appendChild(document.createTextNode(' ')); acc.appendChild(rp);
         if(u.id!==me.id){ var rm=document.createElement('button'); rm.className='danger small'; rm.textContent='Retirar';
           rm.onclick=function(){ if(confirm('Retirar a '+u.name+' y sus actividades?')) api('DELETE','/api/users/'+u.id).then(function(r){ if(r.ok) loadUsers(); else alert(r.data.error); }); };
           acc.appendChild(document.createTextNode(' ')); acc.appendChild(rm);
@@ -582,11 +610,46 @@
     });
   }
   function td(html){ var c=document.createElement('td'); c.innerHTML=html; return c; }
-  function renameUser(u){
-    var n=prompt('Nuevo nombre para '+u.name, u.name); if(!n) return;
-    var nu=prompt('Nuevo usuario (dejar igual si no cambia)', u.username);
-    api('PUT','/api/users/'+u.id,{name:n,username:nu||u.username}).then(function(r){ if(r.ok) loadUsers(); else alert(r.data.error); });
+
+  // ---- Editar usuario (modal) ----
+  var editingUserId=null;
+  function openEditUser(u){
+    editingUserId=u.id;
+    $('eName').value=u.name||'';
+    $('eUser').value=u.username||'';
+    $('eRole').value=u.role||'retail';
+    // Lista de supervisores para el select
+    api('GET','/api/users').then(function(res){
+      if(!res.ok) return;
+      var sups=res.data.users.filter(function(x){return x.role==='supervisor';});
+      fillSelect($('eSup'), sups.map(function(x){return x.id;}), '');
+      var first=$('eSup').querySelector('option[value=""]'); if(first) first.textContent='(sin supervisor)';
+      sups.forEach(function(x){ var o=$('eSup').querySelector('option[value="'+x.id+'"]'); if(o)o.textContent=x.name; });
+      $('eSup').value=u.supervisorId||'';
+    });
+    $('eErr').textContent='';
+    $('editUserModal').classList.remove('hide');
   }
+  function closeEditUser(){ $('editUserModal').classList.add('hide'); editingUserId=null; }
+  $('closeEditUser').onclick=closeEditUser;
+  $('editUserModal').addEventListener('click',function(e){ if(e.target===$('editUserModal')) closeEditUser(); });
+  $('saveEditUser').onclick=function(){
+    if(!editingUserId) return;
+    $('eErr').textContent='';
+    var body={
+      name: $('eName').value.trim(),
+      username: $('eUser').value.trim(),
+      role: $('eRole').value,
+      supervisorId: $('eSup').value || null
+    };
+    if(!body.name){ $('eErr').textContent='El nombre es obligatorio.'; return; }
+    if(!body.username){ $('eErr').textContent='El usuario es obligatorio.'; return; }
+    api('PUT','/api/users/'+editingUserId, body).then(function(res){
+      if(res.ok){ closeEditUser(); loadUsers(); loadUserOptions(); }
+      else $('eErr').textContent=res.data.error||'No se pudo guardar';
+    });
+  };
+
   function resetPass(u){
     var p=prompt('Nueva contraseña temporal para '+u.name); if(!p) return;
     api('PUT','/api/users/'+u.id,{password:p}).then(function(r){ if(r.ok) alert('Contraseña actualizada'); else alert(r.data.error); });
