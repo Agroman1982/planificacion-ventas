@@ -71,6 +71,7 @@
   .users{width:100%;border-collapse:collapse}
   .hide{display:none!important}
   .repWhoBox{padding:10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
+  input[readonly]{background:#f1f3f8;color:var(--muted);cursor:default}
   .pill{font-size:11px;padding:2px 7px;border-radius:999px;background:#eef1f7;color:var(--muted);font-weight:700}
   a.link{color:var(--brand);cursor:pointer;font-weight:600}
   .sum{font-size:13px;color:var(--muted)}
@@ -173,12 +174,12 @@
       </div>
       <div class="grid">
         <div>
-          <label>Semana</label>
-          <input id="iSemana" placeholder="Sem 42 (13–19 Oct)">
-        </div>
-        <div>
           <label>Día</label>
           <input id="iDia" type="date">
+        </div>
+        <div>
+          <label>Semana <span class="muted" style="font-weight:400">(automática)</span></label>
+          <input id="iSemana" placeholder="Sem 42 (12-18 Oct)">
         </div>
         <div>
           <label>Ubicación</label>
@@ -327,6 +328,9 @@
       // Representante: la actividad se asigna automáticamente a su cuenta (servidor).
       $('repWho').classList.remove('hide');
       $('repWhoName').textContent = me.name;
+      // La semana se calcula desde la fecha: el rep no la puede editar (el admin sí).
+      $('iSemana').readOnly = true;
+      $('iSemana').title = 'Se calcula automáticamente al elegir el día';
     }
     $('banner').innerHTML = me.role==='admin'
       ? '<b>Modo administrador</b> — ves la programación de <b>todos</b> los vendedores. Usa el filtro de vendedor para ver uno solo.'

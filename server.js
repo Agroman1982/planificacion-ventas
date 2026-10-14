@@ -124,12 +124,36 @@ function readBody(req) {
 }
 function publicUser(u) { return { id: u.id, name: u.name, username: u.username, role: u.role }; }
 
+// ---------------- Semana calculada desde la fecha ----------------
+const MES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+function etiquetaSemanaDesdeFecha(iso) {
+  if (typeof iso !== 'string' || !iso) return '';
+  const p = iso.split('-'); if (p.length < 3) return '';
+  const d = new Date(+p[0], +p[1] - 1, +p[2]);
+  if (isNaN(d.getTime())) return '';
+  const day = d.getDay() || 7;                       // domingo -> 7
+  const lun = new Date(d.getFullYear(), d.getMonth(), d.getDate() - (day - 1));
+  const dom = new Date(lun.getFullYear(), lun.getMonth(), lun.getDate() + 6);
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dow = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - dow);
+  const ys = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const n = Math.ceil((((t - ys) / 86400000) + 1) / 7);
+  const rango = lun.getMonth() === dom.getMonth()
+    ? lun.getDate() + '-' + dom.getDate() + ' ' + MES_ABBR[dom.getMonth()]
+    : lun.getDate() + ' ' + MES_ABBR[lun.getMonth()] + '-' + dom.getDate() + ' ' + MES_ABBR[dom.getMonth()];
+  return 'Sem ' + n + ' (' + rango + ')';
+}
+
 // ---------------- Validación de filas ----------------
 const TEXT_FIELDS = ['semana', 'dia', 'ubicacion', 'cliente', 'trabajo', 'estado', 'observaciones'];
-function cleanRowInput(body, ownerId) {
+function cleanRowInput(body, ownerId, isAdmin) {
   const out = { ownerId };
-  out.semana = typeof body.semana === 'string' ? body.semana.slice(0, 60).trim() : '';
   out.dia = typeof body.dia === 'string' ? body.dia.slice(0, 10).trim() : '';
+  // Los representantes no escriben la semana: se calcula desde la fecha (el admin sí puede editarla).
+  out.semana = isAdmin
+    ? (typeof body.semana === 'string' ? body.semana.slice(0, 60).trim() : '')
+    : etiquetaSemanaDesdeFecha(out.dia);
   out.ubicacion = typeof body.ubicacion === 'string' ? body.ubicacion.slice(0, 120).trim() : '';
   out.cliente = typeof body.cliente === 'string' ? body.cliente.slice(0, 120).trim() : '';
   out.trabajo = typeof body.trabajo === 'string' ? body.trabajo.slice(0, 300).trim() : '';
@@ -232,7 +256,7 @@ const server = http.createServer(async (req, res) => {
         if (!owner) return sendJSON(res, 400, { error: 'Vendedor no válido' });
         ownerId = owner.id;
       }
-      const c = cleanRowInput(body, ownerId);
+      const c = cleanRowInput(body, ownerId, me.role === 'admin');
       const now = Date.now();
       const row = Object.assign({ id: uid('r'), createdAt: now, updatedAt: now }, c);
       db.rows.push(row);
@@ -253,7 +277,7 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { ok: true });
       }
       const body = await readBody(req);
-      const upd = cleanRowInput(body, row.ownerId);
+      const upd = cleanRowInput(body, row.ownerId, me.role === 'admin');
       Object.assign(row, upd, { updatedAt: Date.now() });
       saveSoon();
       return sendJSON(res, 200, { row });
