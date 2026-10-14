@@ -189,6 +189,10 @@
           <label>Cliente</label>
           <input id="iCliente" placeholder="Nombre del cliente">
         </div>
+        <div>
+          <label>Producto a promocionar</label>
+          <input id="iProducto" placeholder="Ej: Bioinsumo X, Fungicida Y">
+        </div>
         <div style="grid-column:1/-1">
           <label>Trabajo a realizar</label>
           <textarea id="iTrabajo" placeholder="Qué se va a hacer en la visita"></textarea>
@@ -251,7 +255,15 @@
         <div><label>Nombre completo</label><input id="nName" placeholder="Ej. Luis Quispe"></div>
         <div><label>Usuario</label><input id="nUser" placeholder="luis"></div>
         <div><label>Rol</label>
-          <select id="nRole"><option value="rep">Vendedor</option><option value="admin">Administrador</option></select>
+          <select id="nRole">
+            <option value="retail">Vendedor Retail</option>
+            <option value="kam">KAM (vendedor Agroindustria)</option>
+            <option value="supervisor">Supervisor</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+        <div><label>Supervisor (solo para vendedores)</label>
+          <select id="nSup"><option value="">(sin supervisor)</option></select>
         </div>
         <div><label>Contraseña temporal</label><input id="nPass" placeholder="••••••"></div>
       </div>
@@ -298,43 +310,56 @@
     });
   }
 
+  // Etiquetas de rol y helper: quién ve a varios vendedores (admin y supervisor)
+  var ROLE_LABEL = {admin:'Administrador', supervisor:'Supervisor', retail:'Vendedor Retail', kam:'KAM (Agroindustria)'};
+  function veVarios(){ return me && (me.role==='admin' || me.role==='supervisor'); }
+
   function start(user, ests){
     me=user; estados=ests||[];
     $('login').classList.add('hide');
     $('app').classList.remove('hide');
     $('whoName').textContent=me.name;
-    $('whoRole').textContent= me.role==='admin'?'Administrador':'Vendedor';
+    $('whoRole').textContent= ROLE_LABEL[me.role] || me.role;
     // estado selects
     fillSelect($('iEstado'), estados, 'Planificado');
     fillSelect($('fEstado'), estados, '');
     if(me.role==='admin'){
-      $('usersBtn').classList.remove('hide');
+      $('usersBtn').classList.remove('hide');   // gestionar vendedores: solo admin
+      $('csvBtn').classList.remove('hide');     // exportar: admin y supervisor
+      $('repWrap').classList.remove('hide');    // asignar actividad a otro: solo admin
+    }
+    if(veVarios()){
       $('csvBtn').classList.remove('hide');
       $('adminOwnerWrap').classList.remove('hide');
-      $('repWrap').classList.remove('hide');
       // Poblar filtros de vendedor al entrar (sin cambiar el filtro activo: default "Todos")
       api('GET','/api/users').then(function(res){
         if(!res.ok) return;
         var us=res.data.users;
-        fillSelect($('fOwner'), us.map(function(u){return u.id;}), '');
-        us.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
+        // El supervisor solo ve a su equipo; el admin ve a todos.
+        var visibles = me.role==='admin'
+          ? us
+          : us.filter(function(u){ return u.id===me.id || u.supervisorId===me.id; });
+        fillSelect($('fOwner'), visibles.map(function(u){return u.id;}), '');
+        visibles.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
         $('fOwner').value='';
-        var reps=us.filter(function(u){return u.role==='rep';});
+        var reps=us.filter(function(u){return u.role==='retail'||u.role==='kam';});
         fillSelect($('iRep'), reps.map(function(u){return u.id;}));
         reps.forEach(function(u){ var o=$('iRep').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
         if(reps[0]) $('iRep').value=reps[0].id;
       });
     } else {
-      // Representante: la actividad se asigna automáticamente a su cuenta (servidor).
+      // Vendedor (retail / KAM): la actividad se asigna automáticamente a su cuenta (servidor).
       $('repWho').classList.remove('hide');
       $('repWhoName').textContent = me.name;
-      // La semana se calcula desde la fecha: el rep no la puede editar (el admin sí).
+      // La semana se calcula desde la fecha: el vendedor no la puede editar (el admin sí).
       $('iSemana').readOnly = true;
       $('iSemana').title = 'Se calcula automáticamente al elegir el día';
     }
     $('banner').innerHTML = me.role==='admin'
       ? '<b>Modo administrador</b> — ves la programación de <b>todos</b> los vendedores. Usa el filtro de vendedor para ver uno solo.'
-      : 'Estás viendo <b>tu programación semanal</b>. Nadie más puede ver estas actividades.';
+      : me.role==='supervisor'
+        ? '<b>Modo supervisor</b> — ves la programación de <b>tu equipo</b> (los vendedores que tienes a cargo).'
+        : 'Estás viendo <b>tu programación semanal</b>. Nadie más puede ver estas actividades.';
     loadRows();
   }
 
@@ -399,7 +424,7 @@
     var q=[];
     var s=$('fSemana').value.trim(); if(s) q.push('semana='+encodeURIComponent(s));
     var e=$('fEstado').value; if(e) q.push('estado='+encodeURIComponent(e));
-    if(me.role==='admin' && adminOwner) q.push('owner='+encodeURIComponent(adminOwner));
+    if(veVarios() && adminOwner) q.push('owner='+encodeURIComponent(adminOwner));
     api('GET','/api/rows'+(q.length?'?'+q.join('&'):'')).then(function(res){
       if(!res.ok) return;
       rows=res.data.rows||[]; ownerNames=res.data.ownerNames||{};
@@ -421,7 +446,7 @@
     var hd=document.createElement('div'); hd.className='hd';
     var left=document.createElement('div');
     var who=document.createElement('div'); who.className='who muted';
-    who.textContent= me.role==='admin' ? (ownerNames[r.ownerId]||'—') : (esc(r.semana)||'Actividad');
+    who.textContent= veVarios() ? (ownerNames[r.ownerId]||'—') : (esc(r.semana)||'Actividad');
     var sem=document.createElement('div'); sem.style.fontWeight='700'; sem.textContent= esc(r.semana)||'Sin semana';
     left.appendChild(sem); left.appendChild(who);
     var right=document.createElement('div');
@@ -432,6 +457,7 @@
     meta.appendChild(kv('Día', r.dia));
     meta.appendChild(kv('Ubicación', r.ubicacion));
     meta.appendChild(kv('Cliente', r.cliente));
+    meta.appendChild(kv('Producto a promocionar', r.producto));
     meta.appendChild(kv('Venta a concretar', money(r.ventaConcretar)));
     meta.appendChild(kv('Trabajo a realizar', r.trabajo));
     meta.appendChild(kv('Venta realizada', money(r.ventaRealizada)));
@@ -439,7 +465,8 @@
 
     d.appendChild(hd); d.appendChild(meta);
 
-    var canEdit = me.role==='admin' || r.ownerId===me.id;
+    // El servidor ya limita qué filas llegan: si el supervisor la ve, puede editarla.
+    var canEdit = veVarios() || r.ownerId===me.id;
     if(canEdit){
       var tb=document.createElement('div'); tb.style.marginTop='10px'; tb.style.display='flex'; tb.style.gap='8px'; tb.style.justifyContent='flex-end';
       var ed=document.createElement('button'); ed.className='ghost small'; ed.textContent='Editar'; ed.onclick=function(){ openForm(r); };
@@ -459,7 +486,7 @@
   $('saveBtn').onclick=function(){
     var body={
       semana:$('iSemana').value.trim(), dia:$('iDia').value, ubicacion:$('iUbicacion').value.trim(),
-      cliente:$('iCliente').value.trim(), trabajo:$('iTrabajo').value.trim(),
+      cliente:$('iCliente').value.trim(), producto:$('iProducto').value.trim(), trabajo:$('iTrabajo').value.trim(),
       ventaConcretar:$('iConcretar').value, estado:$('iEstado').value,
       ventaRealizada:$('iRealizada').value, observaciones:$('iObs').value.trim()
     };
@@ -476,7 +503,7 @@
     editingId=r.id; $('formTitle').textContent='Editando actividad';
     $('cancelEdit').classList.remove('hide');
     $('iSemana').value=r.semana||''; $('iDia').value=r.dia||''; $('iUbicacion').value=r.ubicacion||'';
-    $('iCliente').value=r.cliente||''; $('iTrabajo').value=r.trabajo||'';
+    $('iCliente').value=r.cliente||''; $('iProducto').value=r.producto||''; $('iTrabajo').value=r.trabajo||'';
     $('iConcretar').value=r.ventaConcretar||''; $('iEstado').value=r.estado||'Planificado';
     $('iRealizada').value=r.ventaRealizada||''; $('iObs').value=r.observaciones||'';
     if(me.role==='admin'){ loadUserOptions(); $('iRep').value=r.ownerId; }
@@ -484,7 +511,7 @@
   }
   function resetForm(){
     editingId=null; $('formTitle').textContent='Nueva actividad'; $('cancelEdit').classList.add('hide');
-    ['iSemana','iDia','iUbicacion','iCliente','iTrabajo','iConcretar','iRealizada','iObs'].forEach(function(id){$(id).value='';});
+    ['iSemana','iDia','iUbicacion','iCliente','iProducto','iTrabajo','iConcretar','iRealizada','iObs'].forEach(function(id){$(id).value='';});
     $('iEstado').value='Planificado';
     if(me.role==='admin' && adminOwner) $('iRep').value=adminOwner;
   }
@@ -503,31 +530,45 @@
   function loadUserOptions(){
     api('GET','/api/users').then(function(res){
       if(!res.ok) return;
-      var reps=res.data.users.filter(function(u){return u.role==='rep';});
+      var us=res.data.users;
+      var reps=us.filter(function(u){return u.role==='retail'||u.role==='kam';});
       fillSelect($('iRep'), reps.map(function(u){return u.id;}), '');
       reps.forEach(function(u){ var o=$('iRep').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
       if(!adminOwner && reps[0]) adminOwner=reps[0].id;
       if(adminOwner) $('iRep').value=adminOwner;
-      // filtro admin
+      // filtro: el admin ve todos; el supervisor solo su equipo
       var cur=adminOwner;
-      fillSelect($('fOwner'), res.data.users.map(function(u){return u.id;}), '');
+      var visibles = me.role==='admin' ? us : us.filter(function(u){ return u.id===me.id || u.supervisorId===me.id; });
+      fillSelect($('fOwner'), visibles.map(function(u){return u.id;}), '');
       $('fOwner').querySelector('option[value=""]').textContent='Todos';
-      res.data.users.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
+      visibles.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
       if(cur) $('fOwner').value=cur;
+      // mantener la lista de supervisores para el panel
+      fillSelect($('nSup'), us.filter(function(u){return u.role==='supervisor';}).map(function(u){return u.id;}), '');
+      us.filter(function(u){return u.role==='supervisor';}).forEach(function(u){ var o=$('nSup').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
     });
   }
   function loadUsers(){
     api('GET','/api/users').then(function(res){
       if(!res.ok) return;
       var t=$('usersTable'); t.innerHTML='';
+      var us=res.data.users;
+      // Lista de supervisores para poder asignarlos a los vendedores
+      var sups=us.filter(function(u){return u.role==='supervisor';});
+      fillSelect($('nSup'), sups.map(function(u){return u.id;}), '');
+      var firstOpt=$('nSup').querySelector('option[value=""]'); if(firstOpt) firstOpt.textContent='(sin supervisor)';
+      sups.forEach(function(u){ var o=$('nSup').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
       var head=document.createElement('tr');
-      ['Nombre','Usuario','Rol','Acciones'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
+      ['Nombre','Usuario','Rol','Supervisor','Acciones'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
       t.appendChild(head);
-      res.data.users.forEach(function(u){
+      us.forEach(function(u){
         var tr=document.createElement('tr');
         tr.appendChild(td(u.name+(u.id===me.id?' (tú)':'')));
         tr.appendChild(td(u.username));
-        tr.appendChild(td(u.role==='admin'?'<span class="pill">Admin</span>':'<span class="pill">Vendedor</span>'));
+        tr.appendChild(td('<span class="pill">'+esc(ROLE_LABEL[u.role]||u.role)+'</span>'));
+        var supName='—';
+        if(u.supervisorId){ var s=us.find(function(x){return x.id===u.supervisorId;}); if(s) supName=s.name; }
+        tr.appendChild(td(supName));
         var acc=document.createElement('td');
         var ren=document.createElement('button'); ren.className='ghost small'; ren.textContent='Renombrar'; ren.onclick=function(){ renameUser(u); };
         var rp=document.createElement('button'); rp.className='ghost small'; rp.textContent='Clave'; rp.onclick=function(){ resetPass(u); };
@@ -552,7 +593,7 @@
   }
   $('addUser').onclick=function(){
     $('uErr').textContent='';
-    api('POST','/api/users',{name:$('nName').value.trim(),username:$('nUser').value.trim(),role:$('nRole').value,password:$('nPass').value}).then(function(r){
+    api('POST','/api/users',{name:$('nName').value.trim(),username:$('nUser').value.trim(),role:$('nRole').value,supervisorId:$('nSup').value||null,password:$('nPass').value}).then(function(r){
       if(r.ok){ $('nName').value='';$('nUser').value='';$('nPass').value=''; loadUsers(); if(me.role==='admin') loadUserOptions(); }
       else $('uErr').textContent=r.data.error;
     });
@@ -560,9 +601,9 @@
 
   // ---- exportar CSV (admin) ----
   $('csvBtn').onclick=function(){
-    var lines=['Representante,Semana,Dia,Ubicacion,Cliente,Trabajo,Venta a concretar,Estado,Venta realizada,Observaciones'];
+    var lines=['Representante,Semana,Dia,Ubicacion,Cliente,Producto,Trabajo,Venta a concretar,Estado,Venta realizada,Observaciones'];
     rows.forEach(function(r){
-      lines.push([ownerNames[r.ownerId]||'',r.semana,r.dia,r.ubicacion,r.cliente,r.trabajo,r.ventaConcretar,r.estado,r.ventaRealizada,r.observaciones]
+      lines.push([ownerNames[r.ownerId]||'',r.semana,r.dia,r.ubicacion,r.cliente,r.producto,r.trabajo,r.ventaConcretar,r.estado,r.ventaRealizada,r.observaciones]
         .map(function(v){ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(','));
     });
     var blob=new Blob([lines.join('\n')],{type:'text/csv'});
@@ -623,7 +664,7 @@
       +'<button class="ghost small" id="calNext">›</button></div>'
       +'<div style="display:flex;gap:8px;align-items:center">'
       +'<button class="ghost small" id="calToday">Hoy</button>';
-    if(me.role==='admin'){ html+='<select id="calOwner" class="small" style="max-width:190px"></select>'; }
+    if(veVarios()){ html+='<select id="calOwner" class="small" style="max-width:190px"></select>'; }
     html+='</div></div>';
     html+='<div class="cal-grid">';
     ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].forEach(function(w){ html+='<div class="cal-dow">'+w+'</div>'; });
@@ -635,21 +676,21 @@
         +'<span class="cal-date">'+d+'</span>'
         +'<span class="cal-add" data-day="'+ds+'" title="Agregar en este día" style="cursor:pointer;color:var(--brand);font-weight:700">+</span></div>';
       (byDay[ds]||[]).forEach(function(r){
-        var color = me.role==='admin' ? (ownerColor[r.ownerId]||'#888') : estadoColor(r.estado);
+        var color = veVarios() ? (ownerColor[r.ownerId]||'#888') : estadoColor(r.estado);
         var label = esc(r.cliente|| r.trabajo || 'Actividad');
-        var tip = (me.role==='admin'?(ownerNames[r.ownerId]||'')+' — ':'') + esc(r.cliente||'') + ' · ' + esc(r.estado);
+        var tip = (veVarios()?(ownerNames[r.ownerId]||'')+' — ':'') + esc(r.cliente||'') + ' · ' + esc(r.estado);
         html+='<div class="cal-chip" data-rid="'+r.id+'" title="'+tip.replace(/"/g,'&quot;')+'" style="background:'+color+'">'+label+'</div>';
       });
       html+='</div>';
     });
     html+='</div>';
-    if(me.role==='admin'){
+    if(veVarios()){
       html+='<div class="cal-legend">';
       ownerIds.forEach(function(id){ html+='<span><i class="cal-dot" style="background:'+ownerColor[id]+'"></i>'+(ownerNames[id]||id)+'</span>'; });
       html+='</div>';
     }
     $('calView').innerHTML=html;
-    if(me.role==='admin' && $('fOwner').options.length){
+    if(veVarios() && $('fOwner').options.length){
       var co=$('calOwner');
       co.innerHTML='';
       Array.prototype.forEach.call($('fOwner').options, function(o){ var op=document.createElement('option'); op.value=o.value; op.textContent=o.textContent; co.appendChild(op); });
@@ -663,14 +704,15 @@
 
   function openDetail(id){
     var r=rows.find(function(x){return x.id===id;}); if(!r) return;
-    var canEdit = me.role==='admin' || r.ownerId===me.id;
+    var canEdit = veVarios() || r.ownerId===me.id;
     var html='<div class="row-toolbar"><h2>Detalle de actividad</h2><button class="ghost small" id="closeDetail">Cerrar</button></div>';
     html+='<div class="det" style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:6px">';
-    if(me.role==='admin') html+=detailKV('Representante', ownerNames[r.ownerId]||'—');
+    if(veVarios()) html+=detailKV('Representante', ownerNames[r.ownerId]||'—');
     html+=detailKV('Semana', r.semana);
     html+=detailKV('Día', r.dia);
     html+=detailKV('Ubicación', r.ubicacion);
     html+=detailKV('Cliente', r.cliente);
+    html+=detailKV('Producto a promocionar', r.producto);
     html+=detailKV('Trabajo a realizar', r.trabajo);
     html+=detailKV('Venta a concretar', money(r.ventaConcretar));
     html+=detailKV('Venta realizada', money(r.ventaRealizada));
@@ -712,7 +754,7 @@
 
     if(single && vendorIds.length){
       var vid=vendorIds[0];
-      var vname = me.role==='admin' ? (ownerNames[vid]||'—') : me.name;
+      var vname = veVarios() ? (ownerNames[vid]||'—') : me.name;
       var html='<div class="row-toolbar"><h2>Resumen de '+esc(vname)+'</h2>'
         +'<button class="ghost small" id="resExport">Exportar a Excel</button></div>';
       html+='<h2 class="muted" style="font-size:14px;font-weight:700">Planificado vs Realizado por semana</h2>';
@@ -780,8 +822,8 @@
     var weekList=Object.keys(weeks).sort();
     var single=(me.role!=='admin')||(adminOwner!=='');
     if(single && rows.length){
-      var vid=(me.role!=='admin')?me.id:adminOwner;
-      var vname=me.role==='admin'?(ownerNames[vid]||'—'):me.name;
+      var vid=veVarios()?adminOwner:me.id;
+      var vname=veVarios()?(ownerNames[vid]||'—'):me.name;
       var bc={};
       rows.forEach(function(r){ var c=r.cliente||'—'; if(!bc[c]) bc[c]={n:0,p:0,rl:0}; bc[c].n++; bc[c].p+=Number(r.ventaConcretar||0); bc[c].rl+=Number(r.ventaRealizada)||0; });
       lines.push('Resumen de '+vname);

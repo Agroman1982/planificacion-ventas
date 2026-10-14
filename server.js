@@ -23,6 +23,12 @@ const SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 días
 
 const ESTADOS = ['Planificado', 'En curso', 'Realizado', 'No realizado'];
 
+// Roles: admin (ve todo), supervisor (ve su equipo), retail y kam (ven solo lo suyo).
+const ROLES = ['admin', 'supervisor', 'retail', 'kam'];
+const ROLES_LABEL = { admin: 'Administrador', supervisor: 'Supervisor', retail: 'Vendedor Retail', kam: 'KAM (Agroindustria)' };
+// Roles que pueden tener un supervisor asignado
+const ROLES_CON_SUPERVISOR = ['retail', 'kam'];
+
 // ---------------- Capa de datos ----------------
 let db = { users: [], rows: [], sessions: {} };
 
@@ -53,18 +59,32 @@ function seed() {
   const mk = (name, username, role, password) => {
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-    return { id: uid('u'), name, username, role, salt, hash, createdAt: Date.now() };
+    return { id: uid('u'), name, username, role, supervisorId: null, salt, hash, createdAt: Date.now() };
   };
   db.users.push(mk('Hector Espinoza', 'hector', 'admin', 'rainbow2026'));
-  db.users.push(mk('Marco Herrera', 'marco', 'rep', 'ventas2026'));
-  db.users.push(mk('Antony Aguirre', 'antony', 'rep', 'ventas2026'));
-  db.users.push(mk('Joan Dorador', 'joan', 'rep', 'ventas2026'));
-  db.users.push(mk('Alfredo Omonte', 'alfredo', 'rep', 'ventas2026'));
+  db.users.push(mk('Marco Herrera', 'marco', 'retail', 'ventas2026'));
+  db.users.push(mk('Antony Aguirre', 'antony', 'retail', 'ventas2026'));
+  db.users.push(mk('Joan Dorador', 'joan', 'retail', 'ventas2026'));
+  db.users.push(mk('Alfredo Omonte', 'alfredo', 'retail', 'ventas2026'));
   save();
   console.log('\n=== Credenciales iniciales (cámbialas desde el panel de administrador) ===');
   console.log('Administrador : hector  /  rainbow2026');
   console.log('Vendedores    : marco, antony, joan, alfredo  /  ventas2026');
   console.log('=====================================================================\n');
+}
+
+// Migración: los roles antiguos 'rep' pasan a 'retail' (lo construido hasta ahora es sector Retail)
+// y se asegura el campo supervisorId.
+function migrate() {
+  let changed = false;
+  db.users.forEach(u => {
+    if (u.role === 'rep') { u.role = 'retail'; changed = true; }
+    if (!ROLES.includes(u.role)) { u.role = 'retail'; changed = true; }
+    if (u.supervisorId === undefined) { u.supervisorId = null; changed = true; }
+    // Un rol que no es retail/kam no debe tener supervisor asignado
+    if (u.role !== 'retail' && u.role !== 'kam' && u.supervisorId) { u.supervisorId = null; changed = true; }
+  });
+  if (changed) save();
 }
 
 // ---------------- Seguridad de contraseñas ----------------
@@ -122,7 +142,26 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
-function publicUser(u) { return { id: u.id, name: u.name, username: u.username, role: u.role }; }
+function publicUser(u) { return { id: u.id, name: u.name, username: u.username, role: u.role, supervisorId: u.supervisorId || null }; }
+
+// ---- Visibilidad por equipo ----
+// Devuelve los ids cuyas filas puede ver "me" (null = puede ver todo).
+function idsVisiblesPara(me) {
+  if (me.role === 'admin') return null;                       // ve todo
+  if (me.role !== 'supervisor') return [me.id];               // retail / kam: solo lo suyo
+  const equipo = db.users.filter(u => u.supervisorId === me.id).map(u => u.id);
+  equipo.push(me.id);                                          // + sus propias filas
+  return equipo;
+}
+function puedeVerFila(me, row) {
+  const ids = idsVisiblesPara(me);
+  return ids === null || ids.indexOf(row.ownerId) >= 0;
+}
+// Un supervisor puede editar/borrar las filas de su equipo (el admin puede todo).
+function puedeTocarFila(me, row) {
+  if (me.role === 'admin') return true;
+  return puedeVerFila(me, row);
+}
 
 // ---------------- Semana calculada desde la fecha ----------------
 const MES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -156,6 +195,7 @@ function cleanRowInput(body, ownerId, isAdmin) {
     : etiquetaSemanaDesdeFecha(out.dia);
   out.ubicacion = typeof body.ubicacion === 'string' ? body.ubicacion.slice(0, 120).trim() : '';
   out.cliente = typeof body.cliente === 'string' ? body.cliente.slice(0, 120).trim() : '';
+  out.producto = typeof body.producto === 'string' ? body.producto.slice(0, 160).trim() : '';
   out.trabajo = typeof body.trabajo === 'string' ? body.trabajo.slice(0, 300).trim() : '';
   out.estado = ESTADOS.includes(body.estado) ? body.estado : 'Planificado';
   out.observaciones = typeof body.observaciones === 'string' ? body.observaciones.slice(0, 400).trim() : '';
@@ -227,16 +267,22 @@ const server = http.createServer(async (req, res) => {
     if (!me) return sendJSON(res, 401, { error: 'No autenticado' });
 
     if (pathname === '/api/me' && method === 'GET') {
-      return sendJSON(res, 200, { user: publicUser(me), estados: ESTADOS });
+      return sendJSON(res, 200, { user: publicUser(me), estados: ESTADOS, roles: ROLES, rolesLabel: ROLES_LABEL });
     }
 
     // ---- Filas (actividades) ----
     if (pathname === '/api/rows' && method === 'GET') {
       let rows = db.rows.slice();
-      if (me.role !== 'admin') {
-        rows = rows.filter(r => r.ownerId === me.id);
-      } else if (url.searchParams.get('owner')) {
-        rows = rows.filter(r => r.ownerId === url.searchParams.get('owner'));
+      // Visibilidad: admin ve todo; supervisor ve su equipo (+ lo suyo); retail/kam solo lo suyo.
+      const visibles = idsVisiblesPara(me);
+      if (visibles !== null) rows = rows.filter(r => visibles.indexOf(r.ownerId) >= 0);
+      const owner = url.searchParams.get('owner');
+      if (owner) {
+        // Nunca se puede pedir un vendedor fuera de lo permitido
+        if (visibles !== null && visibles.indexOf(owner) < 0) {
+          return sendJSON(res, 403, { error: 'No tienes permiso sobre ese vendedor' });
+        }
+        rows = rows.filter(r => r.ownerId === owner);
       }
       const semana = url.searchParams.get('semana');
       if (semana) rows = rows.filter(r => (r.semana || '').toLowerCase().includes(semana.toLowerCase()));
@@ -252,7 +298,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       let ownerId = me.id;
       if (me.role === 'admin' && body.ownerId) {
-        const owner = db.users.find(u => u.id === body.ownerId && u.role === 'rep');
+        const owner = db.users.find(u => u.id === body.ownerId && (u.role === 'retail' || u.role === 'kam'));
         if (!owner) return sendJSON(res, 400, { error: 'Vendedor no válido' });
         ownerId = owner.id;
       }
@@ -268,7 +314,7 @@ const server = http.createServer(async (req, res) => {
     if (rowMatch && (method === 'PUT' || method === 'DELETE')) {
       const row = db.rows.find(r => r.id === rowMatch[1]);
       if (!row) return sendJSON(res, 404, { error: 'No encontrado' });
-      if (me.role !== 'admin' && row.ownerId !== me.id) {
+      if (!puedeTocarFila(me, row)) {
         return sendJSON(res, 403, { error: 'No tienes permiso sobre esta fila' });
       }
       if (method === 'DELETE') {
@@ -294,13 +340,20 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const name = (body.name || '').trim();
       const username = (body.username || '').trim().toLowerCase();
-      const role = body.role === 'admin' ? 'admin' : 'rep';
+      const role = ROLES.includes(body.role) ? body.role : 'retail';
       const password = (body.password || '').toString();
       if (!name || !username || !password) return sendJSON(res, 400, { error: 'Nombre, usuario y contraseña son obligatorios' });
       if (db.users.find(u => u.username === username)) return sendJSON(res, 400, { error: 'Ese nombre de usuario ya existe' });
+      // Supervisor: solo aplica a retail/kam y debe ser un usuario con rol supervisor
+      let supervisorId = null;
+      if (ROLES_CON_SUPERVISOR.includes(role) && body.supervisorId) {
+        const sup = db.users.find(u => u.id === body.supervisorId && u.role === 'supervisor');
+        if (!sup) return sendJSON(res, 400, { error: 'Supervisor no válido' });
+        supervisorId = sup.id;
+      }
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-      const user = { id: uid('u'), name, username, role, salt, hash, createdAt: Date.now() };
+      const user = { id: uid('u'), name, username, role, supervisorId, salt, hash, createdAt: Date.now() };
       db.users.push(user);
       saveSoon();
       return sendJSON(res, 201, { user: publicUser(user) });
@@ -328,7 +381,24 @@ const server = http.createServer(async (req, res) => {
         }
         user.username = nu;
       }
-      if (body.role === 'admin' || body.role === 'rep') user.role = body.role;
+      const rolAnterior = user.role;
+      if (ROLES.includes(body.role)) user.role = body.role;
+      // Si deja de ser supervisor, su equipo queda sin supervisor asignado
+      if (rolAnterior === 'supervisor' && user.role !== 'supervisor') {
+        db.users.forEach(u => { if (u.supervisorId === user.id) u.supervisorId = null; });
+      }
+      // Asignar supervisor (solo aplica a retail/kam)
+      if (body.supervisorId !== undefined) {
+        if (!ROLES_CON_SUPERVISOR.includes(user.role)) {
+          user.supervisorId = null;
+        } else if (!body.supervisorId) {
+          user.supervisorId = null;
+        } else {
+          const sup = db.users.find(u => u.id === body.supervisorId && u.role === 'supervisor');
+          if (!sup) return sendJSON(res, 400, { error: 'Supervisor no válido' });
+          user.supervisorId = sup.id;
+        }
+      }
       if (typeof body.password === 'string' && body.password) {
         user.salt = crypto.randomBytes(16).toString('hex');
         user.hash = crypto.scryptSync(body.password, user.salt, 64).toString('hex');
@@ -345,6 +415,7 @@ const server = http.createServer(async (req, res) => {
 
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { /* ya existe */ }
 load();
+migrate();
 seed();
 server.listen(PORT, HOST, () => {
   console.log(`Planificación de Ventas corriendo en http://localhost:${PORT}`);
