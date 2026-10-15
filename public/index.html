@@ -72,6 +72,14 @@
   .hide{display:none!important}
   .repWhoBox{padding:10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
   input[readonly]{background:#f1f3f8;color:var(--muted);cursor:default}
+  /* Marca de estado en el calendario: ✓ verde (realizado) / ✗ roja (no realizado) */
+  .cal-mark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;min-width:14px;
+    border-radius:50%;font-size:10px;font-weight:800;line-height:1;margin-right:3px;background:#fff}
+  .cal-mark.ok{color:#1a9d5a}
+  .cal-mark.no{color:#c0392b}
+  .cal-mark.pending{color:#c9821a}
+  button.ok{background:var(--ok)}
+  button.ok:hover{background:#158a4e}
   .pill{font-size:11px;padding:2px 7px;border-radius:999px;background:#eef1f7;color:var(--muted);font-weight:700}
   a.link{color:var(--brand);cursor:pointer;font-weight:600}
   .sum{font-size:13px;color:var(--muted)}
@@ -514,7 +522,14 @@
     // El servidor ya limita qué filas llegan: si el supervisor la ve, puede editarla.
     var canEdit = veVarios() || r.ownerId===me.id;
     if(canEdit){
-      var tb=document.createElement('div'); tb.style.marginTop='10px'; tb.style.display='flex'; tb.style.gap='8px'; tb.style.justifyContent='flex-end';
+      var tb=document.createElement('div'); tb.style.marginTop='10px'; tb.style.display='flex'; tb.style.gap='8px'; tb.style.justifyContent='flex-end'; tb.style.flexWrap='wrap';
+      // Marcas rápidas de estado: ✓ realizado / ✗ no realizado
+      if(r.estado!=='Realizado'){
+        var b1=document.createElement('button'); b1.className='ok small'; b1.textContent='✓ Realizado'; b1.onclick=function(){ marcarEstado(r,'Realizado'); }; tb.appendChild(b1);
+      }
+      if(r.estado!=='No realizado'){
+        var b2=document.createElement('button'); b2.className='danger small'; b2.textContent='✗ No realizado'; b2.onclick=function(){ marcarEstado(r,'No realizado'); }; tb.appendChild(b2);
+      }
       var ed=document.createElement('button'); ed.className='ghost small'; ed.textContent='Editar'; ed.onclick=function(){ openForm(r); };
       var del=document.createElement('button'); del.className='danger small'; del.textContent='Eliminar'; del.onclick=function(){ delRow(r.id); };
       tb.appendChild(ed); tb.appendChild(del); d.appendChild(tb);
@@ -762,8 +777,12 @@
       (byDay[ds]||[]).forEach(function(r){
         var color = veVarios() ? (ownerColor[r.ownerId]||'#888') : estadoColor(r.estado);
         var label = esc(r.cliente|| r.trabajo || 'Actividad');
+        // Marca: ✓ verde si se ejecutó, ✗ roja si no; ○ (reloj) si está pendiente/en curso
+        var mark = r.estado==='Realizado' ? '<span class="cal-mark ok">✓</span>'
+                 : r.estado==='No realizado' ? '<span class="cal-mark no">✗</span>'
+                 : '<span class="cal-mark pending">•</span>';
         var tip = (veVarios()?(ownerNames[r.ownerId]||'')+' — ':'') + esc(r.cliente||'') + ' · ' + esc(r.estado);
-        html+='<div class="cal-chip" data-rid="'+r.id+'" title="'+tip.replace(/"/g,'&quot;')+'" style="background:'+color+'">'+label+'</div>';
+        html+='<div class="cal-chip" data-rid="'+r.id+'" title="'+tip.replace(/"/g,'&quot;')+'" style="background:'+color+'">'+mark+label+'</div>';
       });
       html+='</div>';
     });
@@ -804,6 +823,14 @@
     html+='</div>';
     html+='<div style="margin-top:12px"><span class="k">Estado</span> '+estadoBadge(r.estado)+'</div>';
     if(canEdit){
+      // Acciones rápidas para marcar si la acción se realizó o no
+      html+='<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">';
+      html+='<div class="muted" style="font-size:12px;font-weight:700;margin-bottom:6px">Marcar la actividad como:</div>';
+      html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+      html+='<button class="ok small" id="dOk">✓ Realizado</button>';
+      html+='<button class="danger small" id="dNo">✗ No realizado</button>';
+      if(r.estado!=='Planificado') html+='<button class="ghost small" id="dPlan">↺ Volver a planificado</button>';
+      html+='</div></div>';
       html+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">';
       html+='<button class="ghost small" id="dEdit">Editar</button>';
       html+='<button class="danger small" id="dDel">Eliminar</button>';
@@ -814,11 +841,27 @@
     $('closeDetail').onclick=closeDetail;
     $('detailModal').onclick=function(e){ if(e.target===$('detailModal')) closeDetail(); };
     if(canEdit){
+      $('dOk').onclick=function(){ marcarEstado(r,'Realizado'); };
+      $('dNo').onclick=function(){ marcarEstado(r,'No realizado'); };
+      if($('dPlan')) $('dPlan').onclick=function(){ marcarEstado(r,'Planificado'); };
       $('dEdit').onclick=function(){ closeDetail(); showList(); openForm(r); };
       $('dDel').onclick=function(){ closeDetail(); delRow(r.id); };
     }
   }
   function closeDetail(){ $('detailModal').classList.add('hide'); }
+
+  // Cambia solo el estado de una actividad (manda la fila completa para no borrar campos).
+  function marcarEstado(r, estado){
+    var body={
+      semana:r.semana||'', dia:r.dia||'', ubicacion:r.ubicacion||'', cliente:r.cliente||'',
+      producto:r.producto||'', trabajo:r.trabajo||'', ventaConcretar:r.ventaConcretar||0,
+      estado:estado, ventaRealizada:r.ventaRealizada||0, observaciones:r.observaciones||''
+    };
+    api('PUT','/api/rows/'+r.id, body).then(function(res){
+      if(res.ok){ closeDetail(); loadRows(); }
+      else alert(res.data.error||'No se pudo actualizar el estado');
+    });
+  }
 
   // ---- vista Resumen (totales) ----
   function pct(real, plan){ if(plan>0) return (real/plan*100); if(real>0) return 100; return 0; }
