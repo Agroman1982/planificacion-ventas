@@ -331,8 +331,17 @@ const server = http.createServer(async (req, res) => {
 
     // ---- Gestión de usuarios (solo admin) ----
     if (pathname === '/api/users' && method === 'GET') {
-      if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Solo administrador' });
-      return sendJSON(res, 200, { users: db.users.map(publicUser) });
+      // Visibilidad: admin ve todos; supervisor ve su equipo (+ sí mismo);
+      // retail/kam ven solo a sí mismos (no usan este endpoint, pero por si acaso).
+      let list;
+      if (me.role === 'admin') {
+        list = db.users;
+      } else if (me.role === 'supervisor') {
+        list = db.users.filter(u => u.id === me.id || u.supervisorId === me.id);
+      } else {
+        list = db.users.filter(u => u.id === me.id);
+      }
+      return sendJSON(res, 200, { users: list.map(publicUser) });
     }
 
     if (pathname === '/api/users' && method === 'POST') {
