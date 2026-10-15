@@ -23,11 +23,18 @@ const SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 días
 
 const ESTADOS = ['Planificado', 'En curso', 'Realizado', 'No realizado'];
 
-// Roles: admin (ve todo), supervisor (ve su equipo), retail y kam (ven solo lo suyo).
-const ROLES = ['admin', 'supervisor', 'retail', 'kam'];
-const ROLES_LABEL = { admin: 'Administrador', supervisor: 'Supervisor', retail: 'Vendedor Retail', kam: 'KAM (Agroindustria)' };
-// Roles que pueden tener un supervisor asignado
-const ROLES_CON_SUPERVISOR = ['retail', 'kam'];
+// Roles (jerarquía): admin ve todo; supervisor ve a sus retail/kam; retail y kam ven lo suyo
+// + lo de sus promotores; promotor ve solo lo suyo.
+const ROLES = ['admin', 'supervisor', 'retail', 'kam', 'promotor'];
+const ROLES_LABEL = { admin: 'Administrador', supervisor: 'Supervisor', retail: 'Vendedor Retail', kam: 'KAM (Agroindustria)', promotor: 'Promotor' };
+// Roles que pueden tener a alguien encima (un "responsable")
+const ROLES_CON_SUPERVISOR = ['retail', 'kam', 'promotor'];
+// De quién depende cada rol (qué rol puede ser su responsable)
+const PADRE_VALIDO = {
+  retail: ['supervisor'],
+  kam: ['supervisor'],
+  promotor: ['retail', 'kam'],
+};
 
 // ---------------- Capa de datos ----------------
 let db = { users: [], rows: [], sessions: {} };
@@ -146,9 +153,10 @@ function publicUser(u) { return { id: u.id, name: u.name, username: u.username, 
 
 // ---- Visibilidad por equipo ----
 // Devuelve los ids cuyas filas puede ver "me" (null = puede ver todo).
+// La regla es la misma para cualquier rol no-admin: yo + mis subordinados directos.
+//   supervisor -> ve a sus retail/kam;  retail/kam -> ven a sus promotores;  promotor -> solo él.
 function idsVisiblesPara(me) {
-  if (me.role === 'admin') return null;                       // ve todo
-  if (me.role !== 'supervisor') return [me.id];               // retail / kam: solo lo suyo
+  if (me.role === 'admin') return null;                        // ve todo
   const equipo = db.users.filter(u => u.supervisorId === me.id).map(u => u.id);
   equipo.push(me.id);                                          // + sus propias filas
   return equipo;
@@ -157,7 +165,19 @@ function puedeVerFila(me, row) {
   const ids = idsVisiblesPara(me);
   return ids === null || ids.indexOf(row.ownerId) >= 0;
 }
-// Un supervisor puede editar/borrar las filas de su equipo (el admin puede todo).
+// Valida el "responsable" (supervisorId) según el rol del usuario:
+//   retail / kam  -> debe ser un supervisor
+//   promotor      -> debe ser un retail o un kam
+// Devuelve el id válido, null si no aplica/sin responsable, o 'INVALIDO'.
+function validarResponsable(role, responsableId) {
+  if (!ROLES_CON_SUPERVISOR.includes(role)) return null;
+  if (!responsableId) return null;
+  const permitidos = PADRE_VALIDO[role] || [];
+  const padre = db.users.find(u => u.id === responsableId && permitidos.includes(u.role));
+  if (!padre) return 'INVALIDO';
+  return padre.id;
+}
+// Quien ve una fila de su equipo puede editarla/borrarla (el admin puede todo).
 function puedeTocarFila(me, row) {
   if (me.role === 'admin') return true;
   return puedeVerFila(me, row);
@@ -298,7 +318,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       let ownerId = me.id;
       if (me.role === 'admin' && body.ownerId) {
-        const owner = db.users.find(u => u.id === body.ownerId && (u.role === 'retail' || u.role === 'kam'));
+        const owner = db.users.find(u => u.id === body.ownerId && (u.role === 'retail' || u.role === 'kam' || u.role === 'promotor'));
         if (!owner) return sendJSON(res, 400, { error: 'Vendedor no válido' });
         ownerId = owner.id;
       }
@@ -331,16 +351,10 @@ const server = http.createServer(async (req, res) => {
 
     // ---- Gestión de usuarios (solo admin) ----
     if (pathname === '/api/users' && method === 'GET') {
-      // Visibilidad: admin ve todos; supervisor ve su equipo (+ sí mismo);
-      // retail/kam ven solo a sí mismos (no usan este endpoint, pero por si acaso).
-      let list;
-      if (me.role === 'admin') {
-        list = db.users;
-      } else if (me.role === 'supervisor') {
-        list = db.users.filter(u => u.id === me.id || u.supervisorId === me.id);
-      } else {
-        list = db.users.filter(u => u.id === me.id);
-      }
+      // Misma regla que para las filas: admin ve todos; el resto ve a sí mismo + su gente a cargo
+      // (supervisor -> retail/kam;  retail/kam -> promotores;  promotor -> solo él).
+      const ids = idsVisiblesPara(me);
+      const list = ids === null ? db.users : db.users.filter(u => ids.indexOf(u.id) >= 0);
       return sendJSON(res, 200, { users: list.map(publicUser) });
     }
 
@@ -353,12 +367,11 @@ const server = http.createServer(async (req, res) => {
       const password = (body.password || '').toString();
       if (!name || !username || !password) return sendJSON(res, 400, { error: 'Nombre, usuario y contraseña son obligatorios' });
       if (db.users.find(u => u.username === username)) return sendJSON(res, 400, { error: 'Ese nombre de usuario ya existe' });
-      // Supervisor: solo aplica a retail/kam y debe ser un usuario con rol supervisor
-      let supervisorId = null;
-      if (ROLES_CON_SUPERVISOR.includes(role) && body.supervisorId) {
-        const sup = db.users.find(u => u.id === body.supervisorId && u.role === 'supervisor');
-        if (!sup) return sendJSON(res, 400, { error: 'Supervisor no válido' });
-        supervisorId = sup.id;
+      // Responsable: retail/kam -> supervisor;  promotor -> retail o kam
+      const supervisorId = validarResponsable(role, body.supervisorId);
+      if (supervisorId === 'INVALIDO') {
+        const espera = (PADRE_VALIDO[role] || []).join(' / ');
+        return sendJSON(res, 400, { error: 'Responsable no válido. Para ese rol debe ser: ' + espera });
       }
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = crypto.scryptSync(password, salt, 64).toString('hex');
@@ -392,21 +405,20 @@ const server = http.createServer(async (req, res) => {
       }
       const rolAnterior = user.role;
       if (ROLES.includes(body.role)) user.role = body.role;
-      // Si deja de ser supervisor, su equipo queda sin supervisor asignado
-      if (rolAnterior === 'supervisor' && user.role !== 'supervisor') {
-        db.users.forEach(u => { if (u.supervisorId === user.id) u.supervisorId = null; });
+      // Si cambió de rol, liberar a quienes lo tenían como responsable pero ya no aplica
+      if (rolAnterior !== user.role) {
+        db.users.forEach(function (u) {
+          if (u.supervisorId === user.id) {
+            const permitidos = PADRE_VALIDO[u.role] || [];
+            if (!permitidos.includes(user.role)) u.supervisorId = null;
+          }
+        });
       }
-      // Asignar supervisor (solo aplica a retail/kam)
+      // Asignar responsable (supervisor para retail/kam; vendedor o KAM para promotor)
       if (body.supervisorId !== undefined) {
-        if (!ROLES_CON_SUPERVISOR.includes(user.role)) {
-          user.supervisorId = null;
-        } else if (!body.supervisorId) {
-          user.supervisorId = null;
-        } else {
-          const sup = db.users.find(u => u.id === body.supervisorId && u.role === 'supervisor');
-          if (!sup) return sendJSON(res, 400, { error: 'Supervisor no válido' });
-          user.supervisorId = sup.id;
-        }
+        const v = validarResponsable(user.role, body.supervisorId);
+        if (v === 'INVALIDO') return sendJSON(res, 400, { error: 'Responsable no válido para ese rol' });
+        user.supervisorId = v;
       }
       if (typeof body.password === 'string' && body.password) {
         user.salt = crypto.randomBytes(16).toString('hex');

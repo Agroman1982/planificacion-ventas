@@ -258,6 +258,7 @@
           <select id="nRole">
             <option value="retail">Vendedor Retail</option>
             <option value="kam">KAM (vendedor Agroindustria)</option>
+            <option value="promotor">Promotor</option>
             <option value="supervisor">Supervisor</option>
             <option value="admin">Administrador</option>
           </select>
@@ -287,6 +288,7 @@
           <select id="eRole">
             <option value="retail">Vendedor Retail</option>
             <option value="kam">KAM (vendedor Agroindustria)</option>
+            <option value="promotor">Promotor</option>
             <option value="supervisor">Supervisor</option>
             <option value="admin">Administrador</option>
           </select>
@@ -305,6 +307,7 @@
 <script>
 (function(){
   var me=null, rows=[], ownerNames={}, estados=[], editingId=null, adminOwner='';
+  var allUsers=[]; // caché de usuarios visibles (para poblar filtros y selectores)
   var view='list', calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
   var resMetric='Realizado';
   var PALETTE=['#1f6feb','#1a9d5a','#c9821a','#8e44ad','#e0566f','#16a085','#d35400','#2c3e50','#2980b9','#27ae60'];
@@ -339,8 +342,12 @@
   }
 
   // Etiquetas de rol y helper: quién ve a varios vendedores (admin y supervisor)
-  var ROLE_LABEL = {admin:'Administrador', supervisor:'Supervisor', retail:'Vendedor Retail', kam:'KAM (Agroindustria)'};
-  function veVarios(){ return me && (me.role==='admin' || me.role==='supervisor'); }
+  var ROLE_LABEL = {admin:'Administrador', supervisor:'Supervisor', retail:'Vendedor Retail', kam:'KAM (Agroindustria)', promotor:'Promotor'};
+  // Qué rol puede ser responsable de cada rol (espejo de PADRE_VALIDO en el server)
+  var PADRE_VALIDO = {retail:['supervisor'], kam:['supervisor'], promotor:['retail','kam']};
+  // ¿Ve a más de una persona? admin, supervisor, y retail/kam que tengan promotores a cargo.
+  var tieneEquipo = false;
+  function veVarios(){ return me && (me.role==='admin' || me.role==='supervisor' || tieneEquipo); }
 
   function start(user, ests){
     me=user; estados=ests||[];
@@ -352,43 +359,54 @@
     fillSelect($('iEstado'), estados, 'Planificado');
     fillSelect($('fEstado'), estados, '');
     if(me.role==='admin'){
-      $('usersBtn').classList.remove('hide');   // gestionar vendedores: solo admin
-      $('csvBtn').classList.remove('hide');     // exportar: admin y supervisor
+      $('usersBtn').classList.remove('hide');   // gestionar usuarios: solo admin
       $('repWrap').classList.remove('hide');    // asignar actividad a otro: solo admin
-    }
-    if(veVarios()){
-      $('csvBtn').classList.remove('hide');
-      $('adminOwnerWrap').classList.remove('hide');
-      // Poblar filtros de vendedor al entrar (sin cambiar el filtro activo: default "Todos")
-      api('GET','/api/users').then(function(res){
-        if(!res.ok) return;
-        var us=res.data.users;
-        // El supervisor solo ve a su equipo; el admin ve a todos.
-        var visibles = me.role==='admin'
-          ? us
-          : us.filter(function(u){ return u.id===me.id || u.supervisorId===me.id; });
-        fillSelect($('fOwner'), visibles.map(function(u){return u.id;}), '');
-        visibles.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
-        $('fOwner').value='';
-        var reps=us.filter(function(u){return u.role==='retail'||u.role==='kam';});
-        fillSelect($('iRep'), reps.map(function(u){return u.id;}));
-        reps.forEach(function(u){ var o=$('iRep').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
-        if(reps[0]) $('iRep').value=reps[0].id;
-      });
     } else {
-      // Vendedor (retail / KAM): la actividad se asigna automáticamente a su cuenta (servidor).
+      // Vendedor (retail / KAM) o promotor: la actividad se asigna automáticamente a su cuenta.
       $('repWho').classList.remove('hide');
       $('repWhoName').textContent = me.name;
-      // La semana se calcula desde la fecha: el vendedor no la puede editar (el admin sí).
+      // La semana se calcula desde la fecha: no la pueden editar (el admin sí).
       $('iSemana').readOnly = true;
       $('iSemana').title = 'Se calcula automáticamente al elegir el día';
     }
-    $('banner').innerHTML = me.role==='admin'
-      ? '<b>Modo administrador</b> — ves la programación de <b>todos</b> los vendedores. Usa el filtro de vendedor para ver uno solo.'
-      : me.role==='supervisor'
-        ? '<b>Modo supervisor</b> — ves la programación de <b>tu equipo</b> (los vendedores que tienes a cargo).'
-        : 'Estás viendo <b>tu programación semanal</b>. Nadie más puede ver estas actividades.';
+    // Consultar usuarios visibles: sirve para el filtro y para saber si tiene gente a cargo
+    api('GET','/api/users').then(function(res){
+      if(!res.ok) return;
+      allUsers = res.data.users;
+      var otros = allUsers.filter(function(u){ return u.id!==me.id; });
+      tieneEquipo = otros.length > 0;
+      if(veVarios()){
+        $('csvBtn').classList.remove('hide');
+        $('adminOwnerWrap').classList.remove('hide');
+        var cur=adminOwner;
+        fillSelect($('fOwner'), allUsers.map(function(u){return u.id;}), '');
+        var firstOpt=$('fOwner').querySelector('option[value=""]'); if(firstOpt) firstOpt.textContent='Todos';
+        allUsers.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name+(u.id===me.id?' (yo)':''); });
+        if(cur) $('fOwner').value=cur;
+      }
+      if(me.role==='admin'){
+        var reps=allUsers.filter(function(u){return u.role==='retail'||u.role==='kam'||u.role==='promotor';});
+        fillSelect($('iRep'), reps.map(function(u){return u.id;}));
+        reps.forEach(function(u){ var o=$('iRep').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name+' ('+ROLE_LABEL[u.role]+')'; });
+        if(reps[0]) $('iRep').value=reps[0].id;
+      }
+      // Re-render con el estado actualizado (por si tieneEquipo cambió)
+      pintarBanner();
+      renderRows();
+      if(view==='cal') renderCalendar();
+      if(view==='res') renderResumen();
+    });
+    pintarBanner();
     loadRows();
+  }
+  function pintarBanner(){
+    var t;
+    if(me.role==='admin') t='<b>Modo administrador</b> — ves la programación de <b>todos</b> los vendedores. Usa el filtro para ver uno solo.';
+    else if(me.role==='supervisor') t='<b>Modo supervisor</b> — ves la programación de <b>tu equipo</b> (los vendedores que tienes a cargo).';
+    else if(me.role==='promotor') t='Estás viendo <b>tu programación semanal</b>.';
+    else if(tieneEquipo) t='Ves <b>tus actividades</b> y las de <b>tus promotores</b> a cargo. Usa el filtro para ver uno solo.';
+    else t='Estás viendo <b>tu programación semanal</b>. Nadie más puede ver estas actividades.';
+    $('banner').innerHTML=t;
   }
 
   function fillSelect(sel, opts, def){
@@ -555,39 +573,45 @@
   $('closeUsers').onclick=function(){ $('usersModal').classList.add('hide'); };
   $('usersModal').addEventListener('click',function(e){ if(e.target===$('usersModal')) $('usersModal').classList.add('hide'); });
 
+  // Llena el selector de "responsable" según el rol elegido:
+  //   promotor -> vendedores retail / KAM;   retail / kam -> supervisores;   resto -> vacío.
+  function fillResponsable(selId, role, selectedId){
+    var permitidos = PADRE_VALIDO[role] || [];
+    var cands = allUsers.filter(function(u){ return permitidos.indexOf(u.role) >= 0; });
+    fillSelect($(selId), cands.map(function(u){return u.id;}), '');
+    var first=$(selId).querySelector('option[value=""]'); if(first) first.textContent='(sin responsable)';
+    cands.forEach(function(u){ var o=$(selId).querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name+' ('+ROLE_LABEL[u.role]+')'; });
+    if(selectedId) $(selId).value=selectedId;
+  }
+  $('nRole').addEventListener('change', function(){ fillResponsable('nSup', $('nRole').value); });
+  $('eRole').addEventListener('change', function(){ fillResponsable('eSup', $('eRole').value); });
+
   function loadUserOptions(){
     api('GET','/api/users').then(function(res){
       if(!res.ok) return;
-      var us=res.data.users;
-      var reps=us.filter(function(u){return u.role==='retail'||u.role==='kam';});
+      var us=res.data.users; allUsers=us;
+      var reps=us.filter(function(u){return u.role==='retail'||u.role==='kam'||u.role==='promotor';});
       fillSelect($('iRep'), reps.map(function(u){return u.id;}), '');
-      reps.forEach(function(u){ var o=$('iRep').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
+      reps.forEach(function(u){ var o=$('iRep').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name+' ('+ROLE_LABEL[u.role]+')'; });
       if(!adminOwner && reps[0]) adminOwner=reps[0].id;
       if(adminOwner) $('iRep').value=adminOwner;
-      // filtro: el admin ve todos; el supervisor solo su equipo
+      // filtro: el servidor ya devuelve solo los visibles
       var cur=adminOwner;
-      var visibles = me.role==='admin' ? us : us.filter(function(u){ return u.id===me.id || u.supervisorId===me.id; });
-      fillSelect($('fOwner'), visibles.map(function(u){return u.id;}), '');
-      $('fOwner').querySelector('option[value=""]').textContent='Todos';
-      visibles.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
+      fillSelect($('fOwner'), us.map(function(u){return u.id;}), '');
+      var fo=$('fOwner').querySelector('option[value=""]'); if(fo) fo.textContent='Todos';
+      us.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name+(u.id===me.id?' (yo)':''); });
       if(cur) $('fOwner').value=cur;
-      // mantener la lista de supervisores para el panel
-      fillSelect($('nSup'), us.filter(function(u){return u.role==='supervisor';}).map(function(u){return u.id;}), '');
-      us.filter(function(u){return u.role==='supervisor';}).forEach(function(u){ var o=$('nSup').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
+      fillResponsable('nSup', $('nRole').value);
     });
   }
   function loadUsers(){
     api('GET','/api/users').then(function(res){
       if(!res.ok) return;
       var t=$('usersTable'); t.innerHTML='';
-      var us=res.data.users;
-      // Lista de supervisores para poder asignarlos a los vendedores
-      var sups=us.filter(function(u){return u.role==='supervisor';});
-      fillSelect($('nSup'), sups.map(function(u){return u.id;}), '');
-      var firstOpt=$('nSup').querySelector('option[value=""]'); if(firstOpt) firstOpt.textContent='(sin supervisor)';
-      sups.forEach(function(u){ var o=$('nSup').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name; });
+      var us=res.data.users; allUsers=us;
+      fillResponsable('nSup', $('nRole').value);
       var head=document.createElement('tr');
-      ['Nombre','Usuario','Rol','Supervisor','Acciones'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
+      ['Nombre','Usuario','Rol','Responsable','Acciones'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
       t.appendChild(head);
       us.forEach(function(u){
         var tr=document.createElement('tr');
@@ -618,14 +642,11 @@
     $('eName').value=u.name||'';
     $('eUser').value=u.username||'';
     $('eRole').value=u.role||'retail';
-    // Lista de supervisores para el select
+    // Responsable según el rol (promotor -> vendedores/KAM; vendedor/KAM -> supervisores)
     api('GET','/api/users').then(function(res){
       if(!res.ok) return;
-      var sups=res.data.users.filter(function(x){return x.role==='supervisor';});
-      fillSelect($('eSup'), sups.map(function(x){return x.id;}), '');
-      var first=$('eSup').querySelector('option[value=""]'); if(first) first.textContent='(sin supervisor)';
-      sups.forEach(function(x){ var o=$('eSup').querySelector('option[value="'+x.id+'"]'); if(o)o.textContent=x.name; });
-      $('eSup').value=u.supervisorId||'';
+      allUsers=res.data.users;
+      fillResponsable('eSup', u.role, u.supervisorId||'');
     });
     $('eErr').textContent='';
     $('editUserModal').classList.remove('hide');
