@@ -219,6 +219,8 @@ function cleanRowInput(body, ownerId, isAdmin) {
   out.trabajo = typeof body.trabajo === 'string' ? body.trabajo.slice(0, 300).trim() : '';
   out.estado = ESTADOS.includes(body.estado) ? body.estado : 'Planificado';
   out.observaciones = typeof body.observaciones === 'string' ? body.observaciones.slice(0, 400).trim() : '';
+  // Resultado (si se realizó) o motivo (si no se realizó)
+  out.resultado = typeof body.resultado === 'string' ? body.resultado.slice(0, 500).trim() : '';
   out.ventaConcretar = Number(body.ventaConcretar);
   if (!isFinite(out.ventaConcretar) || out.ventaConcretar < 0) out.ventaConcretar = 0;
   out.ventaRealizada = Number(body.ventaRealizada);

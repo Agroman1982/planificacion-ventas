@@ -94,6 +94,7 @@
   .cal-date{font-size:12px;font-weight:700;color:var(--muted)}
   .cal-chip{font-size:11px;line-height:1.2;padding:3px 6px;border-radius:7px;color:#fff;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .cal-chip:hover{filter:brightness(.94)}
+  .cal-chip.gray{color:#5b6675;border:1px solid #dbe1ea}
   .cal-legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:12px;font-size:12px;color:var(--muted)}
   .cal-dot{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
   .cal-add{padding:0 4px}
@@ -226,6 +227,10 @@
           <div class="repWhoBox"><b id="repWhoName"></b> <span class="muted">(tú)</span></div>
         </div>
         <div style="grid-column:1/-1">
+          <label>Resultado / Motivo</label>
+          <textarea id="iResultado" placeholder="Si se realizó: el resultado. Si no: el motivo."></textarea>
+        </div>
+        <div style="grid-column:1/-1">
           <label>Observaciones</label>
           <textarea id="iObs" placeholder="Notas de lo ejecutado"></textarea>
         </div>
@@ -307,6 +312,20 @@
       </div>
       <button id="saveEditUser" style="width:100%;margin-top:12px">Guardar cambios</button>
       <div id="eErr" class="err"></div>
+    </div>
+  </div>
+
+  <!-- Modal marcar estado (resultado / motivo) -->
+  <div id="marcarModal" class="overlay hide">
+    <div class="modal">
+      <div class="row-toolbar">
+        <h2 id="marcarTitle">Marcar actividad</h2>
+        <button class="ghost small" id="closeMarcar">Cerrar</button>
+      </div>
+      <p class="muted" id="marcarHint" style="margin:0 0 10px"></p>
+      <label id="marcarLabel">Comentario</label>
+      <textarea id="marcarTexto" placeholder=""></textarea>
+      <button id="marcarGuardar" style="width:100%;margin-top:12px">Guardar</button>
     </div>
   </div>
 
@@ -516,6 +535,7 @@
     meta.appendChild(kv('Trabajo a realizar', r.trabajo));
     meta.appendChild(kv('Venta realizada', money(r.ventaRealizada)));
     var obsK=kv('Observaciones', r.observaciones); obsK.style.gridColumn='1/-1'; meta.appendChild(obsK);
+    if(r.resultado){ var resK=kv('Resultado / Motivo', r.resultado); resK.style.gridColumn='1/-1'; meta.appendChild(resK); }
 
     d.appendChild(hd); d.appendChild(meta);
 
@@ -525,10 +545,10 @@
       var tb=document.createElement('div'); tb.style.marginTop='10px'; tb.style.display='flex'; tb.style.gap='8px'; tb.style.justifyContent='flex-end'; tb.style.flexWrap='wrap';
       // Marcas rápidas de estado: ✓ realizado / ✗ no realizado
       if(r.estado!=='Realizado'){
-        var b1=document.createElement('button'); b1.className='ok small'; b1.textContent='✓ Realizado'; b1.onclick=function(){ marcarEstado(r,'Realizado'); }; tb.appendChild(b1);
+        var b1=document.createElement('button'); b1.className='ok small'; b1.textContent='✓ Realizado'; b1.onclick=function(){ abrirMarcar(r,'Realizado'); }; tb.appendChild(b1);
       }
       if(r.estado!=='No realizado'){
-        var b2=document.createElement('button'); b2.className='danger small'; b2.textContent='✗ No realizado'; b2.onclick=function(){ marcarEstado(r,'No realizado'); }; tb.appendChild(b2);
+        var b2=document.createElement('button'); b2.className='danger small'; b2.textContent='✗ No realizado'; b2.onclick=function(){ abrirMarcar(r,'No realizado'); }; tb.appendChild(b2);
       }
       var ed=document.createElement('button'); ed.className='ghost small'; ed.textContent='Editar'; ed.onclick=function(){ openForm(r); };
       var del=document.createElement('button'); del.className='danger small'; del.textContent='Eliminar'; del.onclick=function(){ delRow(r.id); };
@@ -549,7 +569,8 @@
       semana:$('iSemana').value.trim(), dia:$('iDia').value, ubicacion:$('iUbicacion').value.trim(),
       cliente:$('iCliente').value.trim(), producto:$('iProducto').value.trim(), trabajo:$('iTrabajo').value.trim(),
       ventaConcretar:$('iConcretar').value, estado:$('iEstado').value,
-      ventaRealizada:$('iRealizada').value, observaciones:$('iObs').value.trim()
+      ventaRealizada:$('iRealizada').value, observaciones:$('iObs').value.trim(),
+      resultado:$('iResultado').value.trim()
     };
     if(me.role==='admin') body.ownerId=$('iRep').value;
     var p = editingId ? api('PUT','/api/rows/'+editingId,body) : api('POST','/api/rows',body);
@@ -567,12 +588,13 @@
     $('iCliente').value=r.cliente||''; $('iProducto').value=r.producto||''; $('iTrabajo').value=r.trabajo||'';
     $('iConcretar').value=r.ventaConcretar||''; $('iEstado').value=r.estado||'Planificado';
     $('iRealizada').value=r.ventaRealizada||''; $('iObs').value=r.observaciones||'';
+    $('iResultado').value=r.resultado||'';
     if(me.role==='admin'){ loadUserOptions(); $('iRep').value=r.ownerId; }
     window.scrollTo({top:0,behavior:'smooth'});
   }
   function resetForm(){
     editingId=null; $('formTitle').textContent='Nueva actividad'; $('cancelEdit').classList.add('hide');
-    ['iSemana','iDia','iUbicacion','iCliente','iProducto','iTrabajo','iConcretar','iRealizada','iObs'].forEach(function(id){$(id).value='';});
+    ['iSemana','iDia','iUbicacion','iCliente','iProducto','iTrabajo','iConcretar','iRealizada','iObs','iResultado'].forEach(function(id){$(id).value='';});
     $('iEstado').value='Planificado';
     if(me.role==='admin' && adminOwner) $('iRep').value=adminOwner;
   }
@@ -700,16 +722,15 @@
 
   // ---- exportar CSV (admin) ----
   $('csvBtn').onclick=function(){
-    var lines=['Representante,Semana,Dia,Ubicacion,Cliente,Producto,Trabajo,Venta a concretar,Estado,Venta realizada,Observaciones'];
+    var lines=['Representante,Semana,Dia,Ubicacion,Cliente,Producto,Trabajo,Venta a concretar,Estado,Venta realizada,Observaciones,Resultado/Motivo'];
     rows.forEach(function(r){
-      lines.push([ownerNames[r.ownerId]||'',r.semana,r.dia,r.ubicacion,r.cliente,r.producto,r.trabajo,r.ventaConcretar,r.estado,r.ventaRealizada,r.observaciones]
+      lines.push([ownerNames[r.ownerId]||'',r.semana,r.dia,r.ubicacion,r.cliente,r.producto,r.trabajo,r.ventaConcretar,r.estado,r.ventaRealizada,r.observaciones,r.resultado]
         .map(function(v){ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(','));
     });
     var blob=new Blob([lines.join('\n')],{type:'text/csv'});
     var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='planificacion_ventas.csv'; a.click();
   };
   // ---- vista Calendario ----
-  function estadoColor(e){ return e==='Realizado'?'#1a9d5a': e==='En curso'?'#c9821a': e==='No realizado'?'#c0392b':'#1f6feb'; }
   function detailKV(k,v){ return '<div><div class="k">'+k+'</div><div class="v">'+esc(v||'—')+'</div></div>'; }
 
   $('tabList').onclick=showList;
@@ -775,14 +796,24 @@
         +'<span class="cal-date">'+d+'</span>'
         +'<span class="cal-add" data-day="'+ds+'" title="Agregar en este día" style="cursor:pointer;color:var(--brand);font-weight:700">+</span></div>';
       (byDay[ds]||[]).forEach(function(r){
-        var color = veVarios() ? (ownerColor[r.ownerId]||'#888') : estadoColor(r.estado);
+        var marcado = (r.estado==='Realizado' || r.estado==='No realizado');
+        // Por vendedor solo cuando se ven varios y NO hay uno seleccionado; si no, por estado.
+        var porVendedor = veVarios() && !adminOwner;
+        var color, extra='';
+        if(porVendedor){
+          color = ownerColor[r.ownerId]||'#888';
+        } else if(marcado){
+          color = r.estado==='Realizado' ? '#1a9d5a' : '#c0392b';
+        } else {
+          color = '#e9edf3'; extra = ' gray';   // gris claro: sin marcar (planificado / en curso)
+        }
         var label = esc(r.cliente|| r.trabajo || 'Actividad');
-        // Marca: ✓ verde si se ejecutó, ✗ roja si no; ○ (reloj) si está pendiente/en curso
+        // Marca: ✓ verde si se ejecutó, ✗ roja si no. Los no marcados quedan en gris, sin marca.
         var mark = r.estado==='Realizado' ? '<span class="cal-mark ok">✓</span>'
                  : r.estado==='No realizado' ? '<span class="cal-mark no">✗</span>'
-                 : '<span class="cal-mark pending">•</span>';
+                 : '';
         var tip = (veVarios()?(ownerNames[r.ownerId]||'')+' — ':'') + esc(r.cliente||'') + ' · ' + esc(r.estado);
-        html+='<div class="cal-chip" data-rid="'+r.id+'" title="'+tip.replace(/"/g,'&quot;')+'" style="background:'+color+'">'+mark+label+'</div>';
+        html+='<div class="cal-chip'+extra+'" data-rid="'+r.id+'" title="'+tip.replace(/"/g,'&quot;')+'" style="background:'+color+'">'+mark+label+'</div>';
       });
       html+='</div>';
     });
@@ -820,6 +851,7 @@
     html+=detailKV('Venta a concretar', money(r.ventaConcretar));
     html+=detailKV('Venta realizada', money(r.ventaRealizada));
     html+=detailKV('Observaciones', r.observaciones);
+    html+=detailKV('Resultado / Motivo', r.resultado);
     html+='</div>';
     html+='<div style="margin-top:12px"><span class="k">Estado</span> '+estadoBadge(r.estado)+'</div>';
     if(canEdit){
@@ -841,8 +873,8 @@
     $('closeDetail').onclick=closeDetail;
     $('detailModal').onclick=function(e){ if(e.target===$('detailModal')) closeDetail(); };
     if(canEdit){
-      $('dOk').onclick=function(){ marcarEstado(r,'Realizado'); };
-      $('dNo').onclick=function(){ marcarEstado(r,'No realizado'); };
+      $('dOk').onclick=function(){ abrirMarcar(r,'Realizado'); };
+      $('dNo').onclick=function(){ abrirMarcar(r,'No realizado'); };
       if($('dPlan')) $('dPlan').onclick=function(){ marcarEstado(r,'Planificado'); };
       $('dEdit').onclick=function(){ closeDetail(); showList(); openForm(r); };
       $('dDel').onclick=function(){ closeDetail(); delRow(r.id); };
@@ -850,12 +882,48 @@
   }
   function closeDetail(){ $('detailModal').classList.add('hide'); }
 
+  // ---- Marcar realizado / no realizado con espacio para resultado o motivo ----
+  var marcarRow=null, marcarEstadoNuevo=null;
+  function abrirMarcar(r, estado){
+    marcarRow=r; marcarEstadoNuevo=estado;
+    if(estado==='Realizado'){
+      $('marcarTitle').textContent='Marcar como realizada';
+      $('marcarLabel').textContent='Resultado de la actividad';
+      $('marcarTexto').placeholder='¿Cómo te fue? Ventas logradas, acuerdos, próximos pasos...';
+    } else {
+      $('marcarTitle').textContent='Marcar como no realizada';
+      $('marcarLabel').textContent='Motivo por el que no se realizó';
+      $('marcarTexto').placeholder='¿Por qué se canceló o no se pudo realizar?';
+    }
+    $('marcarTexto').value = r.resultado || '';
+    $('marcarModal').classList.remove('hide');
+    setTimeout(function(){ try{ $('marcarTexto').focus(); }catch(e){} }, 60);
+  }
+  function closeMarcar(){ $('marcarModal').classList.add('hide'); marcarRow=null; marcarEstadoNuevo=null; }
+  $('closeMarcar').onclick=closeMarcar;
+  $('marcarModal').addEventListener('click',function(e){ if(e.target===$('marcarModal')) closeMarcar(); });
+  $('marcarGuardar').onclick=function(){
+    if(!marcarRow) return;
+    var r=marcarRow;
+    var body={
+      semana:r.semana||'', dia:r.dia||'', ubicacion:r.ubicacion||'', cliente:r.cliente||'',
+      producto:r.producto||'', trabajo:r.trabajo||'', ventaConcretar:r.ventaConcretar||0,
+      estado:marcarEstadoNuevo, ventaRealizada:r.ventaRealizada||0, observaciones:r.observaciones||'',
+      resultado:$('marcarTexto').value.trim()
+    };
+    api('PUT','/api/rows/'+r.id, body).then(function(res){
+      if(res.ok){ closeMarcar(); closeDetail(); loadRows(); }
+      else alert(res.data.error||'No se pudo guardar');
+    });
+  };
+
   // Cambia solo el estado de una actividad (manda la fila completa para no borrar campos).
   function marcarEstado(r, estado){
     var body={
       semana:r.semana||'', dia:r.dia||'', ubicacion:r.ubicacion||'', cliente:r.cliente||'',
       producto:r.producto||'', trabajo:r.trabajo||'', ventaConcretar:r.ventaConcretar||0,
-      estado:estado, ventaRealizada:r.ventaRealizada||0, observaciones:r.observaciones||''
+      estado:estado, ventaRealizada:r.ventaRealizada||0, observaciones:r.observaciones||'',
+      resultado:r.resultado||''
     };
     api('PUT','/api/rows/'+r.id, body).then(function(res){
       if(res.ok){ closeDetail(); loadRows(); }
