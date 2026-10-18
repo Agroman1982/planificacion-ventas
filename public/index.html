@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Planificación Semanal de Ventas</title>
-<meta name="theme-color" content="#1f6feb">
+<meta name="theme-color" content="#1D4ED8">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -15,9 +15,9 @@
 <link rel="apple-touch-startup-image" href="apple-touch-icon.png">
 <style>
   :root{
-    --bg:#f4f6fb; --card:#fff; --ink:#1f2733; --muted:#6b7686; --line:#e4e8f0;
-    --brand:#1f6feb; --brand-d:#1858c4; --ok:#1a9d5a; --warn:#c9821a; --bad:#c0392b;
-    --shadow:0 1px 3px rgba(20,30,50,.08),0 6px 20px rgba(20,30,50,.06);
+    --bg:#E8EEF7; --card:#fff; --ink:#0F172A; --muted:#334155; --line:#C3CEDD;
+    --brand:#1D4ED8; --brand-d:#1A45B8; --ok:#15803D; --warn:#B45309; --bad:#B91C1C;
+    --shadow:0 1px 2px rgba(15,23,42,.06);
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -27,8 +27,8 @@
   h2{font-size:16px;margin:0 0 10px}
   button{font:inherit;cursor:pointer;border:none;border-radius:10px;padding:10px 14px;background:var(--brand);color:#fff;font-weight:600}
   button:hover{background:var(--brand-d)}
-  button.ghost{background:#eef1f7;color:var(--ink)}
-  button.ghost:hover{background:#e2e7f1}
+  button.ghost{background:#E9EDF4;color:var(--ink)}
+  button.ghost:hover{background:#DCE3ED}
   button.danger{background:var(--bad)}
   button.danger:hover{background:#a93226}
   button.small{padding:6px 10px;font-size:13px;border-radius:8px}
@@ -40,10 +40,10 @@
   @media(max-width:560px){.grid{grid-template-columns:1fr}.wrap{padding:10px}}
   .row-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
   .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700}
-  .b-plan{background:#e8f0ff;color:#1f6feb}
-  .b-curso{background:#fff3df;color:#c9821a}
-  .b-ok{background:#e6f7ee;color:#1a9d5a}
-  .b-no{background:#fdeaea;color:#c0392b}
+  .b-plan{background:#E2E8F0;color:#334155}
+  .b-curso{background:#B45309;color:#fff}
+  .b-ok{background:#15803D;color:#fff}
+  .b-no{background:#B91C1C;color:#fff}
   .muted{color:var(--muted)}
   .right{text-align:right}
   .center{text-align:center}
@@ -52,9 +52,12 @@
   .login .card{padding:24px}
   .err{color:var(--bad);font-size:13px;min-height:18px;margin-top:8px}
   /* header */
-  .topbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .topbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+    margin-bottom:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:12px 14px;box-shadow:var(--shadow)}
   .who{font-weight:700}
-  .who .role{font-size:12px;color:var(--muted);font-weight:600}
+  #whoName{font-size:30px;line-height:1.12;letter-spacing:-.2px;word-break:break-word}
+  .who .role{font-size:13px;color:var(--muted);font-weight:600}
   /* list */
   .act{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px;margin-bottom:12px}
   .act .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
@@ -70,17 +73,17 @@
   .users td,.users th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:14px}
   .users{width:100%;border-collapse:collapse}
   .hide{display:none!important}
-  .repWhoBox{padding:10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
-  input[readonly]{background:#f1f3f8;color:var(--muted);cursor:default}
+  .repWhoBox{padding:10px;border:1px solid var(--line);border-radius:10px;background:#F1F5FA}
+  input[readonly]{background:#E9EDF4;color:#475569;cursor:default}
   /* Marca de estado en el calendario: ✓ verde (realizado) / ✗ roja (no realizado) */
   .cal-mark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;min-width:14px;
     border-radius:50%;font-size:10px;font-weight:800;line-height:1;margin-right:3px;background:#fff}
-  .cal-mark.ok{color:#1a9d5a}
-  .cal-mark.no{color:#c0392b}
-  .cal-mark.pending{color:#c9821a}
+  .cal-mark.ok{color:#15803D}
+  .cal-mark.no{color:#B91C1C}
+  .cal-mark.pending{color:#B45309}
   button.ok{background:var(--ok)}
   button.ok:hover{background:#158a4e}
-  .pill{font-size:11px;padding:2px 7px;border-radius:999px;background:#eef1f7;color:var(--muted);font-weight:700}
+  .pill{font-size:11px;padding:2px 7px;border-radius:999px;background:#E2E8F0;color:#334155;font-weight:700}
   a.link{color:var(--brand);cursor:pointer;font-weight:600}
   .sum{font-size:13px;color:var(--muted)}
   /* calendar */
@@ -89,12 +92,12 @@
   .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .cal-dow{font-size:11px;color:var(--muted);text-align:center;font-weight:700;padding:4px 0}
   .cal-cell{border:1px solid var(--line);border-radius:10px;min-height:88px;padding:4px;background:#fff;display:flex;flex-direction:column;gap:3px;overflow:hidden}
-  .cal-cell.out{background:#fafbfd;opacity:.5}
+  .cal-cell.out{background:#F1F5FA;opacity:.5}
   .cal-cell.today{outline:2px solid var(--brand);outline-offset:-2px}
   .cal-date{font-size:12px;font-weight:700;color:var(--muted)}
   .cal-chip{font-size:11px;line-height:1.2;padding:3px 6px;border-radius:7px;color:#fff;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .cal-chip:hover{filter:brightness(.94)}
-  .cal-chip.gray{color:#5b6675;border:1px solid #dbe1ea}
+  .cal-chip.gray{color:#475569;border:1px solid #C3CEDD}
   .cal-legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:12px;font-size:12px;color:var(--muted)}
   .cal-dot{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
   .cal-add{padding:0 4px}
@@ -103,9 +106,9 @@
   @media(max-width:560px){.cal-cell{min-height:66px}.cal-dow{font-size:10px}.cal-date{font-size:11px}.cal-chip{font-size:10px;padding:2px 4px}.det{grid-template-columns:1fr}}
   .rtbl{border-collapse:collapse;width:100%;font-size:14px}
   .rtbl th,.rtbl td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left}
-  .rtbl th{font-size:12px;color:var(--muted);font-weight:700;background:#fafbfd}
+  .rtbl th{font-size:12px;color:var(--muted);font-weight:700;background:#F1F5FA}
   .rtbl td.r,.rtbl th.r{text-align:right;font-variant-numeric:tabular-nums}
-  .rtbl .rtot{font-weight:800;background:#f4f6fb}
+  .rtbl .rtot{font-weight:800;background:#EEF3FA}
   .rtbl tr:last-child td{border-bottom:none}
 </style>
 </head>
@@ -337,7 +340,7 @@
   var allUsers=[]; // caché de usuarios visibles (para poblar filtros y selectores)
   var view='list', calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
   var resMetric='Realizado';
-  var PALETTE=['#1f6feb','#1a9d5a','#c9821a','#8e44ad','#e0566f','#16a085','#d35400','#2c3e50','#2980b9','#27ae60'];
+  var PALETTE=['#1D4ED8','#15803D','#B45309','#6D28D9','#BE123C','#0F766E','#C2410C','#334155','#1E40AF','#166534'];
   function api(method, path, body){
     return fetch(path,{method:method,headers:{'Content-Type':'application/json'},
       credentials:'same-origin',body:body?JSON.stringify(body):undefined}).then(function(r){
@@ -803,9 +806,9 @@
         if(porVendedor){
           color = ownerColor[r.ownerId]||'#888';
         } else if(marcado){
-          color = r.estado==='Realizado' ? '#1a9d5a' : '#c0392b';
+          color = r.estado==='Realizado' ? '#15803D' : '#B91C1C';
         } else {
-          color = '#e9edf3'; extra = ' gray';   // gris claro: sin marcar (planificado / en curso)
+          color = '#EDF1F7'; extra = ' gray';   // gris claro: sin marcar (planificado / en curso)
         }
         var label = esc(r.cliente|| r.trabajo || 'Actividad');
         // Marca: ✓ verde si se ejecutó, ✗ roja si no. Los no marcados quedan en gris, sin marca.
