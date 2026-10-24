@@ -245,9 +245,10 @@ function etiquetaSemanaDesdeFecha(iso) {
 function cleanRowInput(body, schema, ownerId, isAdmin) {
   const out = { ownerId };
   
-  if (!schema || !schema.fields) return out;
+  const fields = schema && schema.schema ? schema.schema.fields : schema.fields;
+  if (!fields || !Array.isArray(fields)) return out;
   
-  schema.fields.forEach(field => {
+  fields.forEach(field => {
     const val = body[field.name];
     
     switch (field.type) {
@@ -270,7 +271,7 @@ function cleanRowInput(body, schema, ownerId, isAdmin) {
   });
   
   // Autofill semana desde fecha si aplica
-  const semanaField = schema.fields.find(f => f.autoFill === 'weekLabelFromDate');
+  const semanaField = fields.find(f => f.autoFill === 'weekLabelFromDate');
   if (semanaField && !isAdmin) {
     out[semanaField.name] = etiquetaSemanaDesdeFecha(out.dia || body.dia);
   }
