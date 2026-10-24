@@ -1,0 +1,45 @@
+{
+  "modules": [
+    {
+      "id": "ventas",
+      "name": "Planificación de Ventas",
+      "description": "Planificación semanal de visitas comerciales y seguimiento de oportunidades",
+      "icon": "📊",
+      "version": "1.0",
+      "active": true,
+      "createdAt": 1729443600000,
+      "updatedAt": 1729443600000,
+      "dataPath": "modules/ventas/data",
+      "allowedRoles": ["admin", "supervisor", "retail", "kam", "promotor"],
+      "defaultView": "lista"
+    },
+    {
+      "id": "marketing",
+      "name": "Marketing",
+      "description": "Gestión de campañas de marketing, métricas y presupuestos",
+      "icon": "📢",
+      "version": "1.0",
+      "active": true,
+      "createdAt": 1729443600000,
+      "updatedAt": 1729443600000,
+      "dataPath": "modules/marketing/data",
+      "allowedRoles": ["admin", "supervisor"],
+      "defaultView": "lista"
+    },
+    {
+      "id": "i-d",
+      "name": "Investigación y Desarrollo",
+      "description": "Proyectos de I+D, formulaciones, pruebas de campo y validaciones",
+      "icon": "🔬",
+      "version": "1.0",
+      "active": true,
+      "createdAt": 1729443600000,
+      "updatedAt": 1729443600000,
+      "dataPath": "modules/i-d/data",
+      "allowedRoles": ["admin", "supervisor"],
+      "defaultView": "lista"
+    }
+  ],
+  "defaultModule": "ventas",
+  "systemVersion": "2.0.0-modular"
+}

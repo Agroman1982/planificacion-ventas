@@ -1,0 +1,211 @@
+{
+  "id": "marketing",
+  "name": "Marketing",
+  "schema": {
+    "fields": [
+      {
+        "name": "nombre",
+        "label": "Nombre de la Campaña",
+        "type": "text",
+        "required": true,
+        "width": 250,
+        "order": 1
+      },
+      {
+        "name": "tipo",
+        "label": "Tipo de Campaña",
+        "type": "select",
+        "required": true,
+        "options": ["Digital", "Evento", "Material POP", "Redes Sociales", "Email Marketing", "Feria/Expo", "Otro"],
+        "default": "Digital",
+        "width": 150,
+        "order": 2
+      },
+      {
+        "name": "canal",
+        "label": "Canal / Medio",
+        "type": "text",
+        "required": false,
+        "placeholder": "Ej: Facebook, Instagram, Google Ads, WhatsApp",
+        "width": 180,
+        "order": 3
+      },
+      {
+        "name": "fechaInicio",
+        "label": "Fecha de Inicio",
+        "type": "date",
+        "required": true,
+        "width": 130,
+        "order": 4
+      },
+      {
+        "name": "fechaFin",
+        "label": "Fecha de Fin",
+        "type": "date",
+        "required": false,
+        "width": 130,
+        "order": 5
+      },
+      {
+        "name": "publicoObjetivo",
+        "label": "Público Objetivo",
+        "type": "text",
+        "required": false,
+        "placeholder": "Ej: Agricultores de Ica, Distribuidores Lima",
+        "width": 200,
+        "order": 6
+      },
+      {
+        "name": "presupuesto",
+        "label": "Presupuesto (US$)",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "width": 150,
+        "order": 7
+      },
+      {
+        "name": "gastoReal",
+        "label": "Gasto Real (US$)",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "width": 150,
+        "order": 8
+      },
+      {
+        "name": "estado",
+        "label": "Estado",
+        "type": "select",
+        "required": true,
+        "options": ["Planificado", "En ejecución", "Pausado", "Finalizado", "Cancelado"],
+        "default": "Planificado",
+        "width": 130,
+        "order": 9
+      },
+      {
+        "name": "responsable",
+        "label": "Responsable",
+        "type": "text",
+        "required": false,
+        "placeholder": "Nombre del responsable",
+        "width": 180,
+        "order": 10
+      },
+      {
+        "name": "alcanceEstimado",
+        "label": "Alcance Estimado",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "placeholder": "Número de personas",
+        "width": 150,
+        "order": 11
+      },
+      {
+        "name": "alcanceReal",
+        "label": "Alcance Real",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "placeholder": "Número de personas alcanzadas",
+        "width": 150,
+        "order": 12
+      },
+      {
+        "name": "leadsGenerados",
+        "label": "Leads Generados",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "width": 130,
+        "order": 13
+      },
+      {
+        "name": "conversiones",
+        "label": "Conversiones",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "width": 130,
+        "order": 14
+      },
+      {
+        "name": "descripcion",
+        "label": "Descripción",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "Detalles de la campaña",
+        "width": 300,
+        "order": 15
+      },
+      {
+        "name": "resultados",
+        "label": "Resultados / Métricas",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "ROI, engagement, clicks, etc.",
+        "width": 300,
+        "order": 16
+      }
+    ],
+    "states": {
+      "values": ["Planificado", "En ejecución", "Pausado", "Finalizado", "Cancelado"],
+      "colors": {
+        "Planificado": "#9e9e9e",
+        "En ejecución": "#2196f3",
+        "Pausado": "#ff9800",
+        "Finalizado": "#4caf50",
+        "Cancelado": "#f44336"
+      },
+      "icons": {
+        "Planificado": "",
+        "En ejecución": "▶",
+        "Pausado": "⏸",
+        "Finalizado": "✓",
+        "Cancelado": "✗"
+      }
+    },
+    "views": {
+      "lista": {
+        "enabled": true,
+        "label": "Lista",
+        "icon": "📋",
+        "filters": ["estado", "tipo", "fecha"],
+        "sortBy": "fechaInicio",
+        "columns": ["nombre", "tipo", "canal", "fechaInicio", "estado", "presupuesto", "gastoReal", "leadsGenerados"]
+      },
+      "calendario": {
+        "enabled": true,
+        "label": "Calendario",
+        "icon": "📅",
+        "colorBy": "estado",
+        "showWeekends": true,
+        "dayFields": ["nombre", "tipo", "estado"]
+      },
+      "resumen": {
+        "enabled": true,
+        "label": "Resumen",
+        "icon": "📈",
+        "groupBy": ["tipo", "estado", "mes"],
+        "metrics": ["presupuesto", "gastoReal", "leadsGenerados", "conversiones", "roi"],
+        "exportFormat": "csv"
+      }
+    },
+    "permissions": {
+      "create": ["admin", "supervisor"],
+      "edit": ["owner", "admin", "supervisor"],
+      "delete": ["owner", "admin"],
+      "viewAll": ["admin"],
+      "viewTeam": ["supervisor"]
+    },
+    "features": {
+      "quickStatusChange": true,
+      "resultDialog": false,
+      "autoWeekLabel": false,
+      "teamVisibility": true,
+      "exportCSV": true,
+      "ownerFilter": true
+    }
+  }
+}

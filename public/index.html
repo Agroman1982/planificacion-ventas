@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Planificación Semanal de Ventas</title>
+<title>Rainbow Platform</title>
 <meta name="theme-color" content="#1B755E">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -112,6 +112,25 @@
   .rtbl td.r,.rtbl th.r{text-align:right;font-variant-numeric:tabular-nums}
   .rtbl .rtot{font-weight:800;background:#EEF3FA}
   .rtbl tr:last-child td{border-bottom:none}
+  /* Meta panel */
+  .meta-panel{background:linear-gradient(135deg,#0F766E,#1B755E);border-radius:14px;padding:18px;margin-bottom:14px;color:#fff;box-shadow:0 2px 6px rgba(15,23,42,.15)}
+  .meta-panel h3{margin:0 0 12px;font-size:15px;font-weight:700;opacity:.9}
+  .meta-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:560px){.meta-grid{grid-template-columns:1fr 1fr}}
+  .meta-box{text-align:center;background:rgba(255,255,255,.12);border-radius:10px;padding:10px 6px}
+  .meta-box .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.8;font-weight:700}
+  .meta-box .val{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:4px}
+  .meta-box .sub{font-size:11px;opacity:.7;margin-top:2px}
+  .meta-bar{height:8px;background:rgba(255,255,255,.2);border-radius:4px;margin-top:12px;overflow:hidden}
+  .meta-bar-fill{height:100%;background:#fff;border-radius:4px;transition:width .5s ease}
+  .meta-bar-fill.over{background:#FFD700}
+  .meta-team{margin-top:14px}
+  .meta-team table{width:100%;border-collapse:collapse;font-size:13px}
+  .meta-team th,.meta-team td{padding:6px 8px;text-align:left;border-bottom:1px solid rgba(255,255,255,.15)}
+  .meta-team th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;font-weight:700}
+  .meta-team td.r{text-align:right;font-variant-numeric:tabular-nums}
+  .meta-team tr:last-child td{border-bottom:none}
+  .meta-goal-input{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font-size:14px;text-align:right}
 </style>
 </head>
 <body>
@@ -146,12 +165,21 @@
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="ghost small hide" id="csvBtn">Exportar CSV</button>
+        <button class="ghost small hide" id="goalsBtn">Metas</button>
         <button class="ghost small hide" id="usersBtn">Gestionar vendedores</button>
         <button class="ghost small" id="logoutBtn">Salir</button>
       </div>
     </div>
 
     <div class="card" id="banner"></div>
+
+    <!-- Meta de ventas mensual -->
+    <div id="metaPanel" class="meta-panel hide"></div>
+
+    <div class="card" id="moduleSelectorCard" style="display:none">
+      <label>Módulo activo</label>
+      <select id="moduleSelector" style="width:100%"></select>
+    </div>
 
     <!-- Filtros -->
     <div class="card">
@@ -334,6 +362,30 @@
     </div>
   </div>
 
+  <!-- Modal Metas de venta -->
+  <div id="goalsModal" class="overlay hide">
+    <div class="modal">
+      <div class="row-toolbar">
+        <h2>Metas de venta mensual</h2>
+        <button class="ghost small" id="closeGoals">Cerrar</button>
+      </div>
+      <p class="muted" style="margin:0 0 10px">Define la meta de ventas (US$) para cada representante del mes seleccionado. El avance se calcula automáticamente con las ventas realizadas.</p>
+      <div class="grid" style="margin-bottom:12px">
+        <div>
+          <label>Mes</label>
+          <select id="goalMonth"></select>
+        </div>
+        <div>
+          <label>Año</label>
+          <select id="goalYear"></select>
+        </div>
+      </div>
+      <table class="users" id="goalsTable"></table>
+      <button id="saveGoals" style="width:100%;margin-top:12px">Guardar metas</button>
+      <div id="gErr" class="err"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -343,11 +395,23 @@
   var view='list', calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
   var resMetric='Realizado';
   var PALETTE=['#1D4ED8','#15803D','#B45309','#6D28D9','#BE123C','#0F766E','#C2410C','#334155','#1E40AF','#166534'];
+  var currentModule = 'ventas'; // Módulo activo por defecto
+  var moduleSchema = null; // Schema del módulo cargado
+  var myGoal = null; // Meta del mes actual del usuario logueado
+  var teamGoals = []; // Metas del equipo (para admin/supervisor)
+  var goalsCache = {}; // Metas cargadas en el modal por userId
+  var MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  
   function api(method, path, body){
     return fetch(path,{method:method,headers:{'Content-Type':'application/json'},
       credentials:'same-origin',body:body?JSON.stringify(body):undefined}).then(function(r){
       return r.json().then(function(j){ return {ok:r.ok, status:r.status, data:j}; });
     });
+  }
+  
+  // Helper para construir URLs de API con módulo
+  function apiUrl(endpoint) {
+    return '/api/modules/' + currentModule + endpoint;
   }
   function $(id){return document.getElementById(id);}
   function esc(s){return (s==null?'':String(s));}
@@ -359,7 +423,11 @@
 
   // ---- init ----
   api('GET','/api/me').then(function(res){
-    if(res.ok){ start(res.data.user, res.data.estados); }
+    if(res.ok){
+      myGoal = res.data.currentGoal || null;
+      teamGoals = res.data.teamGoals || [];
+      start(res.data.user, res.data.estados);
+    }
     else { $('login').classList.remove('hide'); }
   });
 
@@ -368,7 +436,11 @@
   function doLogin(){
     $('lerr').textContent='';
     api('POST','/api/login',{username:$('lu').value.trim(),password:$('lp').value}).then(function(res){
-      if(res.ok){ start(res.data.user, estados); }
+      if(res.ok){
+        myGoal = res.data.currentGoal || null;
+        teamGoals = res.data.teamGoals || [];
+        start(res.data.user, estados);
+      }
       else $('lerr').textContent=res.data.error||'No se pudo iniciar sesión';
     });
   }
@@ -393,6 +465,9 @@
     if(me.role==='admin'){
       $('usersBtn').classList.remove('hide');   // gestionar usuarios: solo admin
       $('repWrap').classList.remove('hide');    // asignar actividad a otro: solo admin
+      $('goalsBtn').classList.remove('hide');   // metas: admin
+    } else if(me.role==='supervisor'){
+      $('goalsBtn').classList.remove('hide');   // metas: supervisor
     } else {
       // Vendedor (retail / KAM) o promotor: la actividad se asigna automáticamente a su cuenta.
       $('repWho').classList.remove('hide');
@@ -424,13 +499,55 @@
       }
       // Re-render con el estado actualizado (por si tieneEquipo cambió)
       pintarBanner();
+      renderMetaPanel();
       renderRows();
       if(view==='cal') renderCalendar();
       if(view==='res') renderResumen();
     });
     pintarBanner();
+    renderMetaPanel();
+    renderMetaPanel();
+    loadModules();
     loadRows();
   }
+  
+  // ---- Cargar módulos disponibles ----
+  function loadModules(){
+    api('GET','/api/modules').then(function(res){
+      if(!res.ok) return;
+      var modules = res.data.modules || [];
+      if(modules.length > 1){
+        $('moduleSelectorCard').style.display = 'block';
+        var sel = $('moduleSelector');
+        sel.innerHTML = '';
+        modules.forEach(function(mod){
+          var opt = document.createElement('option');
+          opt.value = mod.id;
+          opt.textContent = mod.icon + ' ' + mod.name;
+          if(mod.id === currentModule) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        sel.onchange = function(){
+          currentModule = sel.value;
+          loadModuleSchema();
+        };
+      }
+    });
+  }
+  
+  // ---- Cargar schema del módulo ----
+  function loadModuleSchema(){
+    api('GET','/api/modules/' + currentModule + '/schema').then(function(res){
+      if(res.ok){
+        moduleSchema = res.data;
+        // Actualizar título
+        document.title = moduleSchema.name || 'Planificación';
+        // Recargar datos
+        loadRows();
+      }
+    });
+  }
+  
   function pintarBanner(){
     var t;
     if(me.role==='admin') t='<b>Modo administrador</b> — ves la programación de <b>todos</b> los vendedores. Usa el filtro para ver uno solo.';
@@ -440,6 +557,212 @@
     else t='Estás viendo <b>tu programación semanal</b>. Nadie más puede ver estas actividades.';
     $('banner').innerHTML=t;
   }
+
+  // ---- Meta de ventas mensual ----
+  function renderMetaPanel(){
+    var now = new Date();
+    var curMonth = now.getMonth()+1;
+    var curYear = now.getFullYear();
+    var monthName = MONTH_NAMES[now.getMonth()];
+
+    // Calcular realizado del mes actual por vendedor
+    var realizPorUser = {};
+    rows.forEach(function(r){
+      if(!r.dia) return;
+      var p = r.dia.split('-');
+      if(p.length < 3) return;
+      var rowYear = +p[0], rowMonth = +p[1];
+      if(rowYear === curYear && rowMonth === curMonth) {
+        realizPorUser[r.ownerId] = (realizPorUser[r.ownerId]||0) + Number(r.ventaRealizada||0);
+      }
+    });
+
+    // ¿Mostrar panel de equipo (admin/supervisor con equipo) o individual?
+    var showTeam = veVarios() && !adminOwner; // admin sin filtro de 1 solo
+    // Si es admin/supervisor filtrando a 1 vendedor, mostrar panel individual de ese vendedor
+    var showSingle = !veVarios() || (veVarios() && adminOwner);
+
+    if(showSingle){
+      // Panel individual: mi meta o la del vendedor filtrado
+      var targetUid = (veVarios() && adminOwner) ? adminOwner : me.id;
+      var targetName = (veVarios() && adminOwner) ? (ownerNames[adminOwner]||'—') : me.name;
+      var goalAmount = 0;
+      // Buscar la meta
+      if(targetUid === me.id && myGoal) goalAmount = myGoal.amount;
+      else {
+        var g = teamGoals.find(function(tg){ return tg.userId === targetUid; });
+        if(g) goalAmount = g.amount;
+      }
+      var realizado = realizPorUser[targetUid] || 0;
+      var falta = Math.max(0, goalAmount - realizado);
+      var cumple = goalAmount > 0 ? (realizado/goalAmount*100) : 0;
+      var overBar = cumple >= 100;
+
+      var html = '<h3>Meta de ventas — ' + monthName + ' ' + curYear + '</h3>';
+      html += '<div class="meta-grid">';
+      html += '<div class="meta-box"><div class="lbl">Meta</div><div class="val">' + money(goalAmount) + '</div></div>';
+      html += '<div class="meta-box"><div class="lbl">Realizado</div><div class="val">' + money(realizado) + '</div></div>';
+      html += '<div class="meta-box"><div class="lbl">Falta</div><div class="val">' + money(falta) + '</div><div class="sub">' + (goalAmount>0 ? (overBar?'¡Meta cumplida!' : 'para llegar a la meta') : 'sin meta asignada') + '</div></div>';
+      html += '<div class="meta-box"><div class="lbl">% Cumplimiento</div><div class="val" style="' + (overBar?'color:#FFD700':'') + '">' + cumple.toFixed(0) + '%</div></div>';
+      html += '</div>';
+      html += '<div class="meta-bar"><div class="meta-bar-fill' + (overBar?' over':'') + '" style="width:' + Math.min(100, cumple) + '%"></div></div>';
+      if(veVarios() && adminOwner) {
+        html += '<div style="margin-top:10px;font-size:13px;opacity:.8">Vendedor: <b>' + esc(targetName) + '</b></div>';
+      }
+      $('metaPanel').innerHTML = html;
+      $('metaPanel').classList.remove('hide');
+    } else if(showTeam){
+      // Panel de equipo: tabla con metas y avance de cada vendedor
+      var html = '<h3>Metas de venta — ' + monthName + ' ' + curYear + '</h3>';
+      html += '<div class="meta-team"><table>';
+      html += '<tr><th>Vendedor</th><th class="r">Meta</th><th class="r">Realizado</th><th class="r">Falta</th><th class="r">%</th></tr>';
+      var totGoal = 0, totReal = 0;
+      // Para cada vendedor visible
+      var vendedores = allUsers.filter(function(u){ return u.id !== me.id || me.role === 'admin'; });
+      // Si supervisor, filtrar solo su equipo
+      if(me.role === 'supervisor') vendedores = allUsers.filter(function(u){ return u.id !== me.id; });
+      vendedores.forEach(function(u){
+        var g = teamGoals.find(function(tg){ return tg.userId === u.id; });
+        var goal = g ? g.amount : 0;
+        var real = realizPorUser[u.id] || 0;
+        var flt = Math.max(0, goal - real);
+        var pct = goal > 0 ? (real/goal*100) : 0;
+        totGoal += goal; totReal += real;
+        var pctColor = pct >= 100 ? '#FFD700' : (pct >= 75 ? '#86EFAC' : (pct < 50 ? '#FCA5A5' : '#fff'));
+        html += '<tr><td>' + esc(u.name) + '</td><td class="r">' + money(goal) + '</td><td class="r">' + money(real) + '</td><td class="r">' + money(flt) + '</td><td class="r" style="color:' + pctColor + '">' + pct.toFixed(0) + '%</td></tr>';
+      });
+      var totFalta = Math.max(0, totGoal - totReal);
+      var totPct = totGoal > 0 ? (totReal/totGoal*100) : 0;
+      html += '<tr style="font-weight:800;background:rgba(255,255,255,.1)"><td>Total</td><td class="r">' + money(totGoal) + '</td><td class="r">' + money(totReal) + '</td><td class="r">' + money(totFalta) + '</td><td class="r">' + totPct.toFixed(0) + '%</td></tr>';
+      html += '</table></div>';
+      // Barra de progreso global
+      html += '<div class="meta-bar"><div class="meta-bar-fill' + (totPct>=100?' over':'') + '" style="width:' + Math.min(100, totPct) + '%"></div></div>';
+      $('metaPanel').innerHTML = html;
+      $('metaPanel').classList.remove('hide');
+    } else {
+      $('metaPanel').classList.add('hide');
+    }
+  }
+
+  // ---- Modal Metas ----
+  $('goalsBtn').onclick = function(){ openGoalsModal(); };
+  $('closeGoals').onclick = function(){ $('goalsModal').classList.add('hide'); };
+  $('goalsModal').addEventListener('click', function(e){ if(e.target === $('goalsModal')) $('goalsModal').classList.add('hide'); });
+
+  function openGoalsModal(){
+    // Llenar selects de mes y año
+    var monthSel = $('goalMonth'), yearSel = $('goalYear');
+    monthSel.innerHTML = '';
+    for(var i=0; i<12; i++){ var o=document.createElement('option'); o.value=i+1; o.textContent=MONTH_NAMES[i]; monthSel.appendChild(o); }
+    var curY = new Date().getFullYear();
+    yearSel.innerHTML = '';
+    for(var y=curY-1; y<=curY+2; y++){ var o=document.createElement('option'); o.value=y; o.textContent=y; yearSel.appendChild(o); }
+    monthSel.value = new Date().getMonth()+1;
+    yearSel.value = curY;
+
+    monthSel.onchange = function(){ loadGoalsForModal(monthSel.value, yearSel.value); };
+    yearSel.onchange = function(){ loadGoalsForModal(monthSel.value, yearSel.value); };
+
+    loadGoalsForModal(monthSel.value, yearSel.value);
+    $('goalsModal').classList.remove('hide');
+  }
+
+  function loadGoalsForModal(month, year){
+    api('GET', '/api/goals?month=' + month + '&year=' + year).then(function(res){
+      if(!res.ok) return;
+      goalsCache = {};
+      res.data.goals.forEach(function(g){ goalsCache[g.userId] = g.amount; });
+      renderGoalsTable(month, year);
+    });
+  }
+
+  function renderGoalsTable(month, year){
+    var t = $('goalsTable'); t.innerHTML='';
+    var head = document.createElement('tr');
+    ['Vendedor','Meta (US$)','Acción'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
+    t.appendChild(head);
+    // Vendedores visibles (retail, kam, promotor)
+    var reps = allUsers.filter(function(u){ return ['retail','kam','promotor'].indexOf(u.role) >= 0; });
+    reps.forEach(function(u){
+      var tr = document.createElement('tr');
+      var td1 = document.createElement('td'); td1.textContent = u.name + ' (' + (ROLE_LABEL[u.role]||u.role) + ')';
+      var td2 = document.createElement('td');
+      var inp = document.createElement('input'); inp.type='number'; inp.step='0.01'; inp.min='0'; inp.className='meta-goal-input';
+      inp.value = goalsCache[u.id] !== undefined ? goalsCache[u.id] : '';
+      inp.dataset.uid = u.id;
+      td2.appendChild(inp);
+      var td3 = document.createElement('td');
+      var saveBtn = document.createElement('button'); saveBtn.className='ghost small'; saveBtn.textContent='Guardar';
+      saveBtn.onclick = function(){ saveGoal(u.id, inp.value, month, year); };
+      td3.appendChild(saveBtn);
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+      t.appendChild(tr);
+    });
+    if(!reps.length){
+      var tr = document.createElement('tr');
+      var td = document.createElement('td'); td.colSpan = 3; td.className='muted center'; td.textContent='No hay vendedores visibles.';
+      tr.appendChild(td); t.appendChild(tr);
+    }
+  }
+
+  function saveGoal(userId, amount, month, year){
+    $('gErr').textContent='';
+    api('POST', '/api/goals', { userId: userId, amount: amount, month: month, year: year }).then(function(res){
+      if(res.ok){
+        // Actualizar caché
+        goalsCache[userId] = res.data.goal.amount;
+        // Actualizar teamGoals para el panel
+        var found = false;
+        teamGoals.forEach(function(tg){ if(tg.userId === userId){ tg.amount = res.data.goal.amount; found = true; } });
+        if(!found) teamGoals.push({ userId: userId, amount: res.data.goal.amount });
+        // Si es mi propia meta, actualizar myGoal
+        if(userId === me.id) myGoal = { amount: res.data.goal.amount, month: month, year: year };
+        renderMetaPanel();
+        // Feedback visual
+        $('gErr').textContent = 'Meta guardada ✓';
+        $('gErr').style.color = 'var(--ok)';
+        setTimeout(function(){ $('gErr').textContent=''; }, 2000);
+      } else {
+        $('gErr').textContent = res.data.error || 'No se pudo guardar';
+        $('gErr').style.color = 'var(--bad)';
+      }
+    });
+  }
+
+  $('saveGoals').onclick = function(){
+    // Guardar todas las metas modificadas
+    $('gErr').textContent='';
+    var inputs = $('goalsTable').querySelectorAll('input.meta-goal-input');
+    var promises = [];
+    inputs.forEach(function(inp){
+      var uid = inp.dataset.uid;
+      var val = inp.value.trim();
+      if(val !== ''){
+        var existing = goalsCache[uid] !== undefined ? goalsCache[uid] : 0;
+        if(Number(val) !== existing){
+          promises.push(api('POST', '/api/goals', { userId: uid, amount: val, month: $('goalMonth').value, year: $('goalYear').value }));
+        }
+      }
+    });
+    if(!promises.length){
+      $('gErr').textContent = 'No hay cambios que guardar.';
+      $('gErr').style.color = 'var(--muted)';
+      return;
+    }
+    Promise.all(promises).then(function(results){
+      var allOk = results.every(function(r){ return r.ok; });
+      if(allOk){
+        $('gErr').textContent = 'Todas las metas guardadas ✓';
+        $('gErr').style.color = 'var(--ok)';
+        loadGoalsForModal($('goalMonth').value, $('goalYear').value);
+        renderMetaPanel();
+        setTimeout(function(){ $('gErr').textContent=''; }, 2000);
+      } else {
+        $('gErr').textContent = 'Algunas metas no se pudieron guardar.';
+        $('gErr').style.color = 'var(--bad)';
+      }
+    });
+  };
 
   function fillSelect(sel, opts, def){
     sel.innerHTML='';
@@ -494,7 +817,7 @@
 
   // ---- filtros ----
   ['fSemana','fEstado'].forEach(function(id){ $(id).addEventListener('input',loadRows); });
-  $('fOwner').addEventListener('change',function(){ adminOwner=$('fOwner').value; loadRows(); });
+  $('fOwner').addEventListener('change',function(){ adminOwner=$('fOwner').value; loadRows(); renderMetaPanel(); });
   $('logoutBtn').onclick=function(){ api('POST','/api/logout').then(function(){ location.reload(); }); };
 
   // ---- cargar filas ----
@@ -503,10 +826,11 @@
     var s=$('fSemana').value.trim(); if(s) q.push('semana='+encodeURIComponent(s));
     var e=$('fEstado').value; if(e) q.push('estado='+encodeURIComponent(e));
     if(veVarios() && adminOwner) q.push('owner='+encodeURIComponent(adminOwner));
-    api('GET','/api/rows'+(q.length?'?'+q.join('&'):'')).then(function(res){
+    api('GET', apiUrl('/rows')+(q.length?'?'+q.join('&'):'')).then(function(res){
       if(!res.ok) return;
       rows=res.data.rows||[]; ownerNames=res.data.ownerNames||{};
       renderRows();
+      renderMetaPanel();
       if(view==='cal') renderCalendar();
       if(view==='res') renderResumen();
     });
@@ -578,7 +902,7 @@
       resultado:$('iResultado').value.trim()
     };
     if(me.role==='admin') body.ownerId=$('iRep').value;
-    var p = editingId ? api('PUT','/api/rows/'+editingId,body) : api('POST','/api/rows',body);
+    var p = editingId ? api('PUT', apiUrl('/rows/'+editingId), body) : api('POST', apiUrl('/rows'), body);
     p.then(function(res){
       if(res.ok){ resetForm(); loadRows(); }
       else alert(res.data.error||'No se pudo guardar');
@@ -605,7 +929,7 @@
   }
   function delRow(id){
     if(!confirm('¿Eliminar esta actividad?')) return;
-    api('DELETE','/api/rows/'+id).then(function(res){ if(res.ok) loadRows(); else alert(res.data.error||'No se pudo eliminar'); });
+    api('DELETE', apiUrl('/rows/'+id)).then(function(res){ if(res.ok) loadRows(); else alert(res.data.error||'No se pudo eliminar'); });
   }
 
   // ---- administrador: panel de vendedores ----
@@ -727,13 +1051,23 @@
 
   // ---- exportar CSV (admin) ----
   $('csvBtn').onclick=function(){
-    var lines=['Representante,Semana,Dia,Ubicacion,Cliente,Producto,Trabajo,Venta a concretar,Estado,Venta realizada,Observaciones,Resultado/Motivo'];
-    rows.forEach(function(r){
-      lines.push([ownerNames[r.ownerId]||'',r.semana,r.dia,r.ubicacion,r.cliente,r.producto,r.trabajo,r.ventaConcretar,r.estado,r.ventaRealizada,r.observaciones,r.resultado]
-        .map(function(v){ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(','));
+    // Usar el endpoint de exportación del módulo
+    var url = apiUrl('/export');
+    var q=[];
+    if($('fSemana').value.trim()) q.push('semana='+encodeURIComponent($('fSemana').value.trim()));
+    if($('fEstado').value) q.push('estado='+encodeURIComponent($('fEstado').value));
+    if(veVarios() && adminOwner) q.push('owner='+encodeURIComponent(adminOwner));
+    if(q.length) url += '?' + q.join('&');
+    
+    fetch(url, {credentials:'same-origin'}).then(function(r){
+      if(!r.ok) return alert('Error al exportar');
+      return r.blob().then(function(blob){
+        var a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download='planificacion_'+currentModule+'.csv';
+        a.click();
+      });
     });
-    var blob=new Blob([lines.join('\n')],{type:'text/csv'});
-    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='planificacion_ventas.csv'; a.click();
   };
   // ---- vista Calendario ----
   function detailKV(k,v){ return '<div><div class="k">'+k+'</div><div class="v">'+esc(v||'—')+'</div></div>'; }
@@ -834,7 +1168,7 @@
       co.innerHTML='';
       Array.prototype.forEach.call($('fOwner').options, function(o){ var op=document.createElement('option'); op.value=o.value; op.textContent=o.textContent; co.appendChild(op); });
       co.value=adminOwner;
-      co.onchange=function(){ adminOwner=co.value; $('fOwner').value=adminOwner; loadRows(); };
+      co.onchange=function(){ adminOwner=co.value; $('fOwner').value=adminOwner; loadRows(); renderMetaPanel(); };
     }
     $('calPrev').onclick=function(){ calMonth--; if(calMonth<0){calMonth=11;calYear--;} renderCalendar(); };
     $('calNext').onclick=function(){ calMonth++; if(calMonth>11){calMonth=0;calYear++;} renderCalendar(); };
@@ -916,7 +1250,7 @@
       estado:marcarEstadoNuevo, ventaRealizada:r.ventaRealizada||0, observaciones:r.observaciones||'',
       resultado:$('marcarTexto').value.trim()
     };
-    api('PUT','/api/rows/'+r.id, body).then(function(res){
+    api('PUT', apiUrl('/rows/'+r.id), body).then(function(res){
       if(res.ok){ closeMarcar(); closeDetail(); loadRows(); }
       else alert(res.data.error||'No se pudo guardar');
     });
@@ -930,7 +1264,7 @@
       estado:estado, ventaRealizada:r.ventaRealizada||0, observaciones:r.observaciones||'',
       resultado:r.resultado||''
     };
-    api('PUT','/api/rows/'+r.id, body).then(function(res){
+    api('PUT', apiUrl('/rows/'+r.id), body).then(function(res){
       if(res.ok){ closeDetail(); loadRows(); }
       else alert(res.data.error||'No se pudo actualizar el estado');
     });
@@ -1047,8 +1381,8 @@
       }
     }
     if(!lines.length) return;
-    var blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
-    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='resumen_ventas.csv'; a.click();
+    var blob=new Blob(['\uFEFF'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='resumen_'+currentModule+'.csv'; a.click();
   }
 
   function showRes(){

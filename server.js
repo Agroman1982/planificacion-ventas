@@ -1,11 +1,8 @@
 'use strict';
 /*
- * Planificación Semanal de Ventas - servidor sin dependencias (Node.js).
- * - Login real con contraseña hasheada (scrypt).
- * - Aislamiento de filas a nivel de servidor: cada vendedor solo ve sus propias filas;
- *   el administrador ve todas (y puede filtrar por vendedor).
- * - Los vendedores se gestionan desde el panel del administrador (agregar / renombrar / retirar).
- * - Almacenamiento en data.json (JSON). Sin base de datos externa.
+ * Rainbow Platform - Sistema Modular
+ * Core: Auth, sesiones, usuarios, router modular
+ * Módulos: Cada módulo tiene su propio schema (module.json) y datos separados
  */
 const http = require('http');
 const crypto = require('crypto');
@@ -14,87 +11,135 @@ const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
-// En Render el disco persistente se monta en /data (DATA_DIR); en local usa la carpeta del proyecto.
 const DATA_DIR = process.env.DATA_DIR || __dirname;
-const DATA_FILE = path.join(DATA_DIR, 'data.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const MODULES_DIR = path.join(__dirname, 'modules');
 const SESSION_COOKIE = 'sid';
-const SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 días
+const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
 
 const ESTADOS = ['Planificado', 'En curso', 'Realizado', 'No realizado'];
-
-// Roles (jerarquía): admin ve todo; supervisor ve a sus retail/kam; retail y kam ven lo suyo
-// + lo de sus promotores; promotor ve solo lo suyo.
 const ROLES = ['admin', 'supervisor', 'retail', 'kam', 'promotor'];
 const ROLES_LABEL = { admin: 'Administrador', supervisor: 'Supervisor', retail: 'Vendedor Retail', kam: 'KAM (Agroindustria)', promotor: 'Promotor' };
-// Roles que pueden tener a alguien encima (un "responsable")
 const ROLES_CON_SUPERVISOR = ['retail', 'kam', 'promotor'];
-// De quién depende cada rol (qué rol puede ser su responsable)
 const PADRE_VALIDO = {
   retail: ['supervisor'],
   kam: ['supervisor'],
   promotor: ['retail', 'kam'],
 };
 
-// ---------------- Capa de datos ----------------
-let db = { users: [], rows: [], sessions: {} };
+// ---------------- Capa de datos global ----------------
+let globalDb = { users: [], sessions: {}, goals: [] };
+let modulesRegistry = { modules: [], defaultModule: 'ventas' };
 
-function load() {
-  if (fs.existsSync(DATA_FILE)) {
-    try { db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch (e) { /* corrupto: resembrar */ }
+function loadGlobalData() {
+  const usersFile = path.join(DATA_DIR, 'data', 'users.json');
+  if (fs.existsSync(usersFile)) {
+    try { globalDb = JSON.parse(fs.readFileSync(usersFile, 'utf8')); } catch (e) { /* corrupto */ }
   }
-  if (!db.users) db.users = [];
-  if (!db.rows) db.rows = [];
-  if (!db.sessions) db.sessions = {};
+  if (!globalDb.users) globalDb.users = [];
+  if (!globalDb.sessions) globalDb.sessions = {};
+  if (!globalDb.goals) globalDb.goals = [];
+}
+
+function loadModulesRegistry() {
+  const regFile = path.join(__dirname, 'modules.json');
+  console.log('Cargando modules.json desde:', regFile);
+  if (fs.existsSync(regFile)) {
+    try { 
+      modulesRegistry = JSON.parse(fs.readFileSync(regFile, 'utf8')); 
+      console.log('Módulos cargados:', modulesRegistry.modules.length);
+      console.log('IDs:', modulesRegistry.modules.map(m => m.id).join(', '));
+    } catch (e) { 
+      console.error('Error cargando modules.json:', e);
+    }
+  }
+  if (!modulesRegistry.modules) modulesRegistry.modules = [];
+  if (!modulesRegistry.defaultModule) modulesRegistry.defaultModule = 'ventas';
 }
 
 let saveTimer = null;
-function save() {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+function saveGlobalData() {
+  const usersFile = path.join(DATA_DIR, 'data', 'users.json');
+  fs.writeFileSync(usersFile, JSON.stringify(globalDb, null, 2));
+}
+function saveModulesRegistry() {
+  const regFile = path.join(__dirname, 'modules.json');
+  fs.writeFileSync(regFile, JSON.stringify(modulesRegistry, null, 2));
 }
 function saveSoon() {
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(save, 150);
+  saveTimer = setTimeout(() => { saveGlobalData(); }, 150);
 }
 
+// ---------------- Capa de datos por módulo ----------------
+function getModuleDataPath(moduleId) {
+  const mod = modulesRegistry.modules.find(m => m.id === moduleId);
+  if (!mod) return null;
+  return path.join(DATA_DIR, mod.dataPath || `modules/${moduleId}/data`);
+}
+
+function loadModuleData(moduleId) {
+  const dataPath = getModuleDataPath(moduleId);
+  if (!dataPath) return { rows: [] };
+  const rowsFile = path.join(dataPath, 'rows.json');
+  if (fs.existsSync(rowsFile)) {
+    try { return JSON.parse(fs.readFileSync(rowsFile, 'utf8')); } catch (e) { return { rows: [] }; }
+  }
+  return { rows: [] };
+}
+
+function saveModuleData(moduleId, data) {
+  const dataPath = getModuleDataPath(moduleId);
+  if (!dataPath) return;
+  try { fs.mkdirSync(dataPath, { recursive: true }); } catch (e) { /* ya existe */ }
+  const rowsFile = path.join(dataPath, 'rows.json');
+  fs.writeFileSync(rowsFile, JSON.stringify(data, null, 2));
+}
+
+function loadModuleSchema(moduleId) {
+  const schemaFile = path.join(MODULES_DIR, moduleId, 'module.json');
+  if (fs.existsSync(schemaFile)) {
+    try { return JSON.parse(fs.readFileSync(schemaFile, 'utf8')); } catch (e) { return null; }
+  }
+  return null;
+}
+
+// ---------------- Utilidades ----------------
 function uid(prefix) {
   return prefix + '_' + crypto.randomBytes(9).toString('hex');
 }
 
 function seed() {
-  if (db.users.length > 0) return;
+  if (globalDb.users.length > 0) return;
   const mk = (name, username, role, password) => {
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.scryptSync(password, salt, 64).toString('hex');
     return { id: uid('u'), name, username, role, supervisorId: null, salt, hash, createdAt: Date.now() };
   };
-  db.users.push(mk('Hector Espinoza', 'hector', 'admin', 'rainbow2026'));
-  db.users.push(mk('Marco Herrera', 'marco', 'retail', 'ventas2026'));
-  db.users.push(mk('Antony Aguirre', 'antony', 'retail', 'ventas2026'));
-  db.users.push(mk('Joan Dorador', 'joan', 'retail', 'ventas2026'));
-  db.users.push(mk('Alfredo Omonte', 'alfredo', 'retail', 'ventas2026'));
-  save();
+  globalDb.users.push(mk('Hector Espinoza', 'hector', 'admin', 'rainbow2026'));
+  globalDb.users.push(mk('Marco Herrera', 'marco', 'retail', 'ventas2026'));
+  globalDb.users.push(mk('Antony Aguirre', 'antony', 'retail', 'ventas2026'));
+  globalDb.users.push(mk('Joan Dorador', 'joan', 'retail', 'ventas2026'));
+  globalDb.users.push(mk('Alfredo Omonte', 'alfredo', 'retail', 'ventas2026'));
+  saveGlobalData();
   console.log('\n=== Credenciales iniciales (cámbialas desde el panel de administrador) ===');
   console.log('Administrador : hector  /  rainbow2026');
   console.log('Vendedores    : marco, antony, joan, alfredo  /  ventas2026');
   console.log('=====================================================================\n');
 }
 
-// Migración: los roles antiguos 'rep' pasan a 'retail' (lo construido hasta ahora es sector Retail)
-// y se asegura el campo supervisorId.
 function migrate() {
   let changed = false;
-  db.users.forEach(u => {
+  globalDb.users.forEach(u => {
     if (u.role === 'rep') { u.role = 'retail'; changed = true; }
     if (!ROLES.includes(u.role)) { u.role = 'retail'; changed = true; }
     if (u.supervisorId === undefined) { u.supervisorId = null; changed = true; }
-    // Un rol que no es retail/kam no debe tener supervisor asignado
     if (u.role !== 'retail' && u.role !== 'kam' && u.supervisorId) { u.supervisorId = null; changed = true; }
   });
-  if (changed) save();
+  if (changed) saveGlobalData();
 }
 
-// ---------------- Seguridad de contraseñas ----------------
+// ---------------- Seguridad ----------------
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 }
@@ -108,19 +153,19 @@ function verifyPassword(password, salt, hash) {
 // ---------------- Sesiones ----------------
 function createSession(userId) {
   const id = crypto.randomBytes(24).toString('hex');
-  db.sessions[id] = { userId, exp: Date.now() + SESSION_TTL };
+  globalDb.sessions[id] = { userId, exp: Date.now() + SESSION_TTL };
   saveSoon();
   return id;
 }
 function destroySession(sid) {
-  if (sid && db.sessions[sid]) { delete db.sessions[sid]; saveSoon(); }
+  if (sid && globalDb.sessions[sid]) { delete globalDb.sessions[sid]; saveSoon(); }
 }
 function getUserFromCookie(req) {
   const sid = getCookie(req, SESSION_COOKIE);
   if (!sid) return null;
-  const s = db.sessions[sid];
-  if (!s || s.exp < Date.now()) { if (s) delete db.sessions[sid]; return null; }
-  return db.users.find(u => u.id === s.userId) || null;
+  const s = globalDb.sessions[sid];
+  if (!s || s.exp < Date.now()) { if (s) delete globalDb.sessions[sid]; return null; }
+  return globalDb.users.find(u => u.id === s.userId) || null;
 }
 
 // ---------------- Helpers HTTP ----------------
@@ -151,46 +196,38 @@ function readBody(req) {
 }
 function publicUser(u) { return { id: u.id, name: u.name, username: u.username, role: u.role, supervisorId: u.supervisorId || null }; }
 
-// ---- Visibilidad por equipo ----
-// Devuelve los ids cuyas filas puede ver "me" (null = puede ver todo).
-// La regla es la misma para cualquier rol no-admin: yo + mis subordinados directos.
-//   supervisor -> ve a sus retail/kam;  retail/kam -> ven a sus promotores;  promotor -> solo él.
+// ---------------- Visibilidad ----------------
 function idsVisiblesPara(me) {
-  if (me.role === 'admin') return null;                        // ve todo
-  const equipo = db.users.filter(u => u.supervisorId === me.id).map(u => u.id);
-  equipo.push(me.id);                                          // + sus propias filas
+  if (me.role === 'admin') return null;
+  const equipo = globalDb.users.filter(u => u.supervisorId === me.id).map(u => u.id);
+  equipo.push(me.id);
   return equipo;
 }
 function puedeVerFila(me, row) {
   const ids = idsVisiblesPara(me);
   return ids === null || ids.indexOf(row.ownerId) >= 0;
 }
-// Valida el "responsable" (supervisorId) según el rol del usuario:
-//   retail / kam  -> debe ser un supervisor
-//   promotor      -> debe ser un retail o un kam
-// Devuelve el id válido, null si no aplica/sin responsable, o 'INVALIDO'.
 function validarResponsable(role, responsableId) {
   if (!ROLES_CON_SUPERVISOR.includes(role)) return null;
   if (!responsableId) return null;
   const permitidos = PADRE_VALIDO[role] || [];
-  const padre = db.users.find(u => u.id === responsableId && permitidos.includes(u.role));
+  const padre = globalDb.users.find(u => u.id === responsableId && permitidos.includes(u.role));
   if (!padre) return 'INVALIDO';
   return padre.id;
 }
-// Quien ve una fila de su equipo puede editarla/borrarla (el admin puede todo).
 function puedeTocarFila(me, row) {
   if (me.role === 'admin') return true;
   return puedeVerFila(me, row);
 }
 
-// ---------------- Semana calculada desde la fecha ----------------
+// ---------------- Semana calculada ----------------
 const MES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 function etiquetaSemanaDesdeFecha(iso) {
   if (typeof iso !== 'string' || !iso) return '';
   const p = iso.split('-'); if (p.length < 3) return '';
   const d = new Date(+p[0], +p[1] - 1, +p[2]);
   if (isNaN(d.getTime())) return '';
-  const day = d.getDay() || 7;                       // domingo -> 7
+  const day = d.getDay() || 7;
   const lun = new Date(d.getFullYear(), d.getMonth(), d.getDate() - (day - 1));
   const dom = new Date(lun.getFullYear(), lun.getMonth(), lun.getDate() + 6);
   const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -204,27 +241,40 @@ function etiquetaSemanaDesdeFecha(iso) {
   return 'Sem ' + n + ' (' + rango + ')';
 }
 
-// ---------------- Validación de filas ----------------
-const TEXT_FIELDS = ['semana', 'dia', 'ubicacion', 'cliente', 'trabajo', 'estado', 'observaciones'];
-function cleanRowInput(body, ownerId, isAdmin) {
+// ---------------- Validación de filas (schema-driven) ----------------
+function cleanRowInput(body, schema, ownerId, isAdmin) {
   const out = { ownerId };
-  out.dia = typeof body.dia === 'string' ? body.dia.slice(0, 10).trim() : '';
-  // Los representantes no escriben la semana: se calcula desde la fecha (el admin sí puede editarla).
-  out.semana = isAdmin
-    ? (typeof body.semana === 'string' ? body.semana.slice(0, 60).trim() : '')
-    : etiquetaSemanaDesdeFecha(out.dia);
-  out.ubicacion = typeof body.ubicacion === 'string' ? body.ubicacion.slice(0, 120).trim() : '';
-  out.cliente = typeof body.cliente === 'string' ? body.cliente.slice(0, 120).trim() : '';
-  out.producto = typeof body.producto === 'string' ? body.producto.slice(0, 160).trim() : '';
-  out.trabajo = typeof body.trabajo === 'string' ? body.trabajo.slice(0, 300).trim() : '';
-  out.estado = ESTADOS.includes(body.estado) ? body.estado : 'Planificado';
-  out.observaciones = typeof body.observaciones === 'string' ? body.observaciones.slice(0, 400).trim() : '';
-  // Resultado (si se realizó) o motivo (si no se realizó)
-  out.resultado = typeof body.resultado === 'string' ? body.resultado.slice(0, 500).trim() : '';
-  out.ventaConcretar = Number(body.ventaConcretar);
-  if (!isFinite(out.ventaConcretar) || out.ventaConcretar < 0) out.ventaConcretar = 0;
-  out.ventaRealizada = Number(body.ventaRealizada);
-  if (!isFinite(out.ventaRealizada) || out.ventaRealizada < 0) out.ventaRealizada = 0;
+  
+  if (!schema || !schema.fields) return out;
+  
+  schema.fields.forEach(field => {
+    const val = body[field.name];
+    
+    switch (field.type) {
+      case 'date':
+        out[field.name] = typeof val === 'string' ? val.slice(0, 10).trim() : '';
+        break;
+      case 'number':
+        const num = Number(val);
+        out[field.name] = (!isFinite(num) || num < 0) ? (field.default || 0) : num;
+        break;
+      case 'select':
+        out[field.name] = (field.options && field.options.includes(val)) ? val : (field.default || field.options[0] || '');
+        break;
+      case 'textarea':
+      case 'text':
+      default:
+        const maxLen = field.maxLength || 500;
+        out[field.name] = typeof val === 'string' ? val.trim().slice(0, maxLen) : '';
+    }
+  });
+  
+  // Autofill semana desde fecha si aplica
+  const semanaField = schema.fields.find(f => f.autoFill === 'weekLabelFromDate');
+  if (semanaField && !isAdmin) {
+    out[semanaField.name] = etiquetaSemanaDesdeFecha(out.dia || body.dia);
+  }
+  
   return out;
 }
 
@@ -235,11 +285,11 @@ const server = http.createServer(async (req, res) => {
     const pathname = url.pathname;
     const method = req.method.toUpperCase();
 
-    // Archivos estáticos (index.html + manifest + íconos PWA)
+    // Archivos estáticos
     if (method === 'GET') {
       let rel = decodeURIComponent(pathname);
-      if (rel === '/' || rel === '/app') rel = '/index.html';
-      // Seguridad: evitar path traversal y limitar a PUBLIC_DIR
+      if (rel === '/') rel = '/index.html';
+      if (rel === '/app') rel = '/app.html';
       const file = path.normalize(path.join(PUBLIC_DIR, rel));
       if (!file.startsWith(PUBLIC_DIR)) return sendJSON(res, 403, { error: 'Acceso denegado' });
       if (fs.existsSync(file) && fs.statSync(file).isFile()) {
@@ -256,8 +306,6 @@ const server = http.createServer(async (req, res) => {
           '.txt': 'text/plain; charset=utf-8',
         };
         const ct = types[ext] || 'application/octet-stream';
-        // HTML no debe quedar en caché del navegador (así los reps ven las mejoras al instante).
-        // Los íconos y el manifest sí se pueden cachear un rato.
         const cacheCtl = ext === '.html' ? 'no-store, no-cache, must-revalidate' : 'public, max-age=3600';
         res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': cacheCtl });
         return fs.createReadStream(file).pipe(res);
@@ -270,13 +318,23 @@ const server = http.createServer(async (req, res) => {
     // ---- Auth ----
     if (pathname === '/api/login' && method === 'POST') {
       const body = await readBody(req);
-      const user = db.users.find(u => u.username === body.username);
+      const user = globalDb.users.find(u => u.username === body.username);
       if (!user || !verifyPassword(body.password || '', user.salt, user.hash)) {
         return sendJSON(res, 401, { error: 'Usuario o contraseña incorrectos' });
       }
       const sid = createSession(user.id);
       setCookie(res, SESSION_COOKIE, sid, Math.floor(SESSION_TTL / 1000));
-      return sendJSON(res, 200, { user: publicUser(user) });
+      // Include goal data for immediate use on frontend
+      const now = new Date();
+      const curMonth = now.getMonth() + 1;
+      const curYear = now.getFullYear();
+      const myGoal = globalDb.goals.find(g => g.userId === user.id && g.month === curMonth && g.year === curYear);
+      const ids = idsVisiblesPara(user);
+      let teamGoals = [];
+      const filterIds = ids !== null ? ids : null;
+      teamGoals = globalDb.goals.filter(g => g.month === curMonth && g.year === curYear && (filterIds === null || filterIds.indexOf(g.userId) >= 0))
+        .map(g => { const u = globalDb.users.find(x => x.id === g.userId); return { userId: g.userId, userName: u ? u.name : '—', amount: g.amount }; });
+      return sendJSON(res, 200, { user: publicUser(user), currentGoal: myGoal ? { amount: myGoal.amount, month: curMonth, year: curYear } : null, teamGoals: teamGoals });
     }
 
     if (pathname === '/api/logout' && method === 'POST') {
@@ -289,18 +347,76 @@ const server = http.createServer(async (req, res) => {
     if (!me) return sendJSON(res, 401, { error: 'No autenticado' });
 
     if (pathname === '/api/me' && method === 'GET') {
-      return sendJSON(res, 200, { user: publicUser(me), estados: ESTADOS, roles: ROLES, rolesLabel: ROLES_LABEL });
+      const now = new Date();
+      const curMonth = now.getMonth() + 1;
+      const curYear = now.getFullYear();
+      const myGoal = globalDb.goals.find(g => g.userId === me.id && g.month === curMonth && g.year === curYear);
+      // Si es admin o supervisor, incluir las metas de su equipo
+      const ids = idsVisiblesPara(me);
+      let teamGoals = [];
+      if (ids !== null) {
+        teamGoals = globalDb.goals.filter(g => g.month === curMonth && g.year === curYear && ids.indexOf(g.userId) >= 0)
+          .map(g => { const u = globalDb.users.find(x => x.id === g.userId); return { userId: g.userId, userName: u ? u.name : '—', amount: g.amount }; });
+      } else {
+        teamGoals = globalDb.goals.filter(g => g.month === curMonth && g.year === curYear)
+          .map(g => { const u = globalDb.users.find(x => x.id === g.userId); return { userId: g.userId, userName: u ? u.name : '—', amount: g.amount }; });
+      }
+      return sendJSON(res, 200, { 
+        user: publicUser(me), 
+        estados: ESTADOS, 
+        roles: ROLES, 
+        rolesLabel: ROLES_LABEL,
+        modules: modulesRegistry.modules
+          .filter(m => m.active && m.allowedRoles.includes(me.role))
+          .map(m => ({ id: m.id, name: m.name, icon: m.icon, description: m.description })),
+        currentGoal: myGoal ? { amount: myGoal.amount, month: curMonth, year: curYear } : null,
+        teamGoals: teamGoals,
+        currentMonth: curMonth,
+        currentYear: curYear
+      });
     }
 
-    // ---- Filas (actividades) ----
-    if (pathname === '/api/rows' && method === 'GET') {
-      let rows = db.rows.slice();
-      // Visibilidad: admin ve todo; supervisor ve su equipo (+ lo suyo); retail/kam solo lo suyo.
+    // ---- Módulos: Listar disponibles ----
+    if (pathname === '/api/modules' && method === 'GET') {
+      const available = modulesRegistry.modules
+        .filter(m => m.active && m.allowedRoles.includes(me.role))
+        .map(m => ({ id: m.id, name: m.name, icon: m.icon, description: m.description, defaultView: m.defaultView }));
+      return sendJSON(res, 200, { modules: available, defaultModule: modulesRegistry.defaultModule });
+    }
+
+    // ---- Módulos: Schema ----
+    const schemaMatch = pathname.match(/^\/api\/modules\/([^/]+)\/schema$/);
+    if (schemaMatch && method === 'GET') {
+      const moduleId = schemaMatch[1];
+      const mod = modulesRegistry.modules.find(m => m.id === moduleId);
+      if (!mod || !mod.active) return sendJSON(res, 404, { error: 'Módulo no encontrado' });
+      if (!mod.allowedRoles.includes(me.role)) return sendJSON(res, 403, { error: 'No tienes acceso a este módulo' });
+      
+      const schema = loadModuleSchema(moduleId);
+      if (!schema) return sendJSON(res, 500, { error: 'Schema no encontrado' });
+      return sendJSON(res, 200, schema);
+    }
+
+    // ---- Módulos: CRUD de filas ----
+    const rowsMatch = pathname.match(/^\/api\/modules\/([^/]+)\/rows$/);
+    const rowDetailMatch = pathname.match(/^\/api\/modules\/([^/]+)\/rows\/([^/]+)$/);
+
+    if (rowsMatch && method === 'GET') {
+      const moduleId = rowsMatch[1];
+      const mod = modulesRegistry.modules.find(m => m.id === moduleId);
+      if (!mod || !mod.active) return sendJSON(res, 404, { error: 'Módulo no encontrado' });
+      if (!mod.allowedRoles.includes(me.role)) return sendJSON(res, 403, { error: 'No tienes acceso a este módulo' });
+
+      const moduleData = loadModuleData(moduleId);
+      let rows = moduleData.rows || [];
+
+      // Visibilidad
       const visibles = idsVisiblesPara(me);
       if (visibles !== null) rows = rows.filter(r => visibles.indexOf(r.ownerId) >= 0);
+
+      // Filtros
       const owner = url.searchParams.get('owner');
       if (owner) {
-        // Nunca se puede pedir un vendedor fuera de lo permitido
         if (visibles !== null && visibles.indexOf(owner) < 0) {
           return sendJSON(res, 403, { error: 'No tienes permiso sobre ese vendedor' });
         }
@@ -310,53 +426,229 @@ const server = http.createServer(async (req, res) => {
       if (semana) rows = rows.filter(r => (r.semana || '').toLowerCase().includes(semana.toLowerCase()));
       const estado = url.searchParams.get('estado');
       if (estado) rows = rows.filter(r => r.estado === estado);
+      const dia = url.searchParams.get('dia');
+      if (dia) rows = rows.filter(r => r.dia === dia);
+
       rows.sort((a, b) => (a.dia || '').localeCompare(b.dia || '') || a.createdAt - b.createdAt);
+      
       const ownerNames = {};
-      db.users.forEach(u => { ownerNames[u.id] = u.name; });
+      globalDb.users.forEach(u => { ownerNames[u.id] = u.name; });
       return sendJSON(res, 200, { rows, ownerNames });
     }
 
-    if (pathname === '/api/rows' && method === 'POST') {
+    if (rowsMatch && method === 'POST') {
+      const moduleId = rowsMatch[1];
+      const mod = modulesRegistry.modules.find(m => m.id === moduleId);
+      if (!mod || !mod.active) return sendJSON(res, 404, { error: 'Módulo no encontrado' });
+      if (!mod.allowedRoles.includes(me.role)) return sendJSON(res, 403, { error: 'No tienes acceso a este módulo' });
+
+      const schema = loadModuleSchema(moduleId);
       const body = await readBody(req);
+      
       let ownerId = me.id;
       if (me.role === 'admin' && body.ownerId) {
-        const owner = db.users.find(u => u.id === body.ownerId && (u.role === 'retail' || u.role === 'kam' || u.role === 'promotor'));
+        const owner = globalDb.users.find(u => u.id === body.ownerId && (u.role === 'retail' || u.role === 'kam' || u.role === 'promotor'));
         if (!owner) return sendJSON(res, 400, { error: 'Vendedor no válido' });
         ownerId = owner.id;
       }
-      const c = cleanRowInput(body, ownerId, me.role === 'admin');
+      
+      const c = cleanRowInput(body, schema, ownerId, me.role === 'admin');
       const now = Date.now();
       const row = Object.assign({ id: uid('r'), createdAt: now, updatedAt: now }, c);
-      db.rows.push(row);
-      saveSoon();
+      
+      const moduleData = loadModuleData(moduleId);
+      moduleData.rows = moduleData.rows || [];
+      moduleData.rows.push(row);
+      saveModuleData(moduleId, moduleData);
+      
       return sendJSON(res, 201, { row });
     }
 
-    const rowMatch = pathname.match(/^\/api\/rows\/([^/]+)$/);
-    if (rowMatch && (method === 'PUT' || method === 'DELETE')) {
-      const row = db.rows.find(r => r.id === rowMatch[1]);
+    if (rowDetailMatch && (method === 'PUT' || method === 'DELETE')) {
+      const moduleId = rowDetailMatch[1];
+      const rowId = rowDetailMatch[2];
+      
+      const mod = modulesRegistry.modules.find(m => m.id === moduleId);
+      if (!mod || !mod.active) return sendJSON(res, 404, { error: 'Módulo no encontrado' });
+      if (!mod.allowedRoles.includes(me.role)) return sendJSON(res, 403, { error: 'No tienes acceso a este módulo' });
+
+      const moduleData = loadModuleData(moduleId);
+      const row = moduleData.rows.find(r => r.id === rowId);
       if (!row) return sendJSON(res, 404, { error: 'No encontrado' });
-      if (!puedeTocarFila(me, row)) {
-        return sendJSON(res, 403, { error: 'No tienes permiso sobre esta fila' });
-      }
+      if (!puedeTocarFila(me, row)) return sendJSON(res, 403, { error: 'No tienes permiso sobre esta fila' });
+
       if (method === 'DELETE') {
-        db.rows = db.rows.filter(r => r.id !== row.id);
-        saveSoon();
+        moduleData.rows = moduleData.rows.filter(r => r.id !== row.id);
+        saveModuleData(moduleId, moduleData);
         return sendJSON(res, 200, { ok: true });
       }
+
+      const schema = loadModuleSchema(moduleId);
       const body = await readBody(req);
-      const upd = cleanRowInput(body, row.ownerId, me.role === 'admin');
+      const upd = cleanRowInput(body, schema, row.ownerId, me.role === 'admin');
       Object.assign(row, upd, { updatedAt: Date.now() });
-      saveSoon();
+      saveModuleData(moduleId, moduleData);
       return sendJSON(res, 200, { row });
     }
 
+    // ---- Módulos: Exportar CSV ----
+    const exportMatch = pathname.match(/^\/api\/modules\/([^/]+)\/export$/);
+    if (exportMatch && method === 'GET') {
+      const moduleId = exportMatch[1];
+      const mod = modulesRegistry.modules.find(m => m.id === moduleId);
+      if (!mod || !mod.active) return sendJSON(res, 404, { error: 'Módulo no encontrado' });
+      if (!mod.allowedRoles.includes(me.role)) return sendJSON(res, 403, { error: 'No tienes acceso' });
+
+      const moduleData = loadModuleData(moduleId);
+      let rows = moduleData.rows || [];
+      const visibles = idsVisiblesPara(me);
+      if (visibles !== null) rows = rows.filter(r => visibles.indexOf(r.ownerId) >= 0);
+
+      const schema = loadModuleSchema(moduleId);
+      const fields = schema.schema.fields;
+      
+      // CSV Header
+      let csv = '\uFEFF'; // BOM UTF-8
+      const headers = fields.map(f => f.label).concat(['Creado', 'Actualizado']);
+      csv += headers.join(';') + '\n';
+      
+      // CSV Rows
+      rows.forEach(row => {
+        const values = fields.map(f => {
+          const val = row[f.name] || '';
+          return String(val).replace(/;/g, ',').replace(/\n/g, ' ');
+        });
+        values.push(new Date(row.createdAt).toLocaleString('es-PE'));
+        values.push(new Date(row.updatedAt).toLocaleString('es-PE'));
+        csv += values.join(';') + '\n';
+      });
+
+      res.writeHead(200, { 
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${moduleId}-export.csv"`
+      });
+      return res.end(csv);
+    }
+
+    // ---- Gestión de módulos (solo admin) ----
+    if (pathname === '/api/admin/modules' && method === 'GET') {
+      if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Solo administrador' });
+      return sendJSON(res, 200, { modules: modulesRegistry.modules });
+    }
+
+    if (pathname === '/api/admin/modules' && method === 'POST') {
+      if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Solo administrador' });
+      const body = await readBody(req);
+      const id = (body.id || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+      const name = (body.name || '').trim();
+      if (!id || !name) return sendJSON(res, 400, { error: 'ID y nombre son obligatorios' });
+      if (modulesRegistry.modules.find(m => m.id === id)) return sendJSON(res, 400, { error: 'Ese ID de módulo ya existe' });
+      
+      const newModule = {
+        id,
+        name,
+        description: (body.description || '').trim(),
+        icon: (body.icon || '📦').trim(),
+        version: '1.0',
+        active: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        dataPath: `modules/${id}/data`,
+        allowedRoles: body.allowedRoles || ['admin'],
+        defaultView: body.defaultView || 'lista'
+      };
+      modulesRegistry.modules.push(newModule);
+      saveModulesRegistry();
+      
+      // Crear estructura de carpetas del módulo
+      const modDir = path.join(MODULES_DIR, id);
+      const modDataDir = path.join(modDir, 'data');
+      try {
+        fs.mkdirSync(modDataDir, { recursive: true });
+        fs.writeFileSync(path.join(modDir, 'module.json'), JSON.stringify({
+          id,
+          name,
+          schema: {
+            fields: [
+              { name: 'titulo', label: 'Título', type: 'text', required: true },
+              { name: 'descripcion', label: 'Descripción', type: 'textarea', required: false },
+              { name: 'estado', label: 'Estado', type: 'select', options: ['Pendiente', 'En progreso', 'Completado'], default: 'Pendiente' }
+            ],
+            states: { values: ['Pendiente', 'En progreso', 'Completado'] },
+            views: {
+              lista: { enabled: true, label: 'Lista', filters: ['estado'] },
+              calendario: { enabled: false }
+            }
+          }
+        }, null, 2));
+        fs.writeFileSync(path.join(modDataDir, 'rows.json'), JSON.stringify({ rows: [] }, null, 2));
+      } catch (e) { /* ignore */ }
+      
+      return sendJSON(res, 201, { module: newModule });
+    }
+
+    const adminModMatch = pathname.match(/^\/api\/admin\/modules\/([^/]+)$/);
+    if (adminModMatch && method === 'DELETE') {
+      if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Solo administrador' });
+      const moduleId = adminModMatch[1];
+      if (moduleId === 'ventas') return sendJSON(res, 400, { error: 'No se puede eliminar el módulo ventas' });
+      
+      modulesRegistry.modules = modulesRegistry.modules.filter(m => m.id !== moduleId);
+      saveModulesRegistry();
+      return sendJSON(res, 200, { ok: true });
+    }
+
+    // ---- Metas de venta (goals) ----
+    // GET /api/goals?month=10&year=2026  → devuelve metas del mes para los visibles
+    if (pathname === '/api/goals' && method === 'GET') {
+      const month = parseInt(url.searchParams.get('month')) || (new Date().getMonth() + 1);
+      const year = parseInt(url.searchParams.get('year')) || new Date().getFullYear();
+      const ids = idsVisiblesPara(me);
+      let goals = globalDb.goals.filter(g => g.month === month && g.year === year);
+      if (ids !== null) goals = goals.filter(g => ids.indexOf(g.userId) >= 0);
+      // Adjuntar nombre del usuario
+      const result = goals.map(g => {
+        const u = globalDb.users.find(x => x.id === g.userId);
+        return { id: g.id, userId: g.userId, userName: u ? u.name : '—', month: g.month, year: g.year, amount: g.amount, updatedAt: g.updatedAt };
+      });
+      return sendJSON(res, 200, { goals: result, month, year });
+    }
+
+    // POST /api/goals → crear o actualizar meta (upsert)
+    if (pathname === '/api/goals' && method === 'POST') {
+      if (me.role !== 'admin' && me.role !== 'supervisor') return sendJSON(res, 403, { error: 'Solo administrador o supervisor' });
+      const body = await readBody(req);
+      const userId = body.userId;
+      const month = parseInt(body.month) || (new Date().getMonth() + 1);
+      const year = parseInt(body.year) || new Date().getFullYear();
+      const amount = Math.max(0, Number(body.amount) || 0);
+
+      if (!userId) return sendJSON(res, 400, { error: 'Falta el vendedor' });
+      const target = globalDb.users.find(u => u.id === userId);
+      if (!target) return sendJSON(res, 400, { error: 'Vendedor no encontrado' });
+      // Supervisor solo puede setear metas para su equipo
+      const ids = idsVisiblesPara(me);
+      if (ids !== null && ids.indexOf(userId) < 0) return sendJSON(res, 403, { error: 'No tienes permiso sobre ese vendedor' });
+
+      // Upsert: buscar si ya existe una meta para ese user/mes/año
+      let goal = globalDb.goals.find(g => g.userId === userId && g.month === month && g.year === year);
+      if (goal) {
+        goal.amount = amount;
+        goal.updatedAt = Date.now();
+      } else {
+        goal = { id: uid('g'), userId, month, year, amount, createdAt: Date.now(), updatedAt: Date.now() };
+        globalDb.goals.push(goal);
+      }
+      saveSoon();
+      return sendJSON(res, 200, { goal });
+    }
+
+    // ---- Fin metas ----
+
     // ---- Gestión de usuarios (solo admin) ----
     if (pathname === '/api/users' && method === 'GET') {
-      // Misma regla que para las filas: admin ve todos; el resto ve a sí mismo + su gente a cargo
-      // (supervisor -> retail/kam;  retail/kam -> promotores;  promotor -> solo él).
       const ids = idsVisiblesPara(me);
-      const list = ids === null ? db.users : db.users.filter(u => ids.indexOf(u.id) >= 0);
+      const list = ids === null ? globalDb.users : globalDb.users.filter(u => ids.indexOf(u.id) >= 0);
       return sendJSON(res, 200, { users: list.map(publicUser) });
     }
 
@@ -368,17 +660,18 @@ const server = http.createServer(async (req, res) => {
       const role = ROLES.includes(body.role) ? body.role : 'retail';
       const password = (body.password || '').toString();
       if (!name || !username || !password) return sendJSON(res, 400, { error: 'Nombre, usuario y contraseña son obligatorios' });
-      if (db.users.find(u => u.username === username)) return sendJSON(res, 400, { error: 'Ese nombre de usuario ya existe' });
-      // Responsable: retail/kam -> supervisor;  promotor -> retail o kam
+      if (globalDb.users.find(u => u.username === username)) return sendJSON(res, 400, { error: 'Ese nombre de usuario ya existe' });
+      
       const supervisorId = validarResponsable(role, body.supervisorId);
       if (supervisorId === 'INVALIDO') {
         const espera = (PADRE_VALIDO[role] || []).join(' / ');
         return sendJSON(res, 400, { error: 'Responsable no válido. Para ese rol debe ser: ' + espera });
       }
+      
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = crypto.scryptSync(password, salt, 64).toString('hex');
       const user = { id: uid('u'), name, username, role, supervisorId, salt, hash, createdAt: Date.now() };
-      db.users.push(user);
+      globalDb.users.push(user);
       saveSoon();
       return sendJSON(res, 201, { user: publicUser(user) });
     }
@@ -386,13 +679,19 @@ const server = http.createServer(async (req, res) => {
     const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
     if (userMatch && (method === 'PUT' || method === 'DELETE')) {
       if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Solo administrador' });
-      const user = db.users.find(u => u.id === userMatch[1]);
+      const user = globalDb.users.find(u => u.id === userMatch[1]);
       if (!user) return sendJSON(res, 404, { error: 'No encontrado' });
       if (method === 'DELETE') {
         if (user.id === me.id) return sendJSON(res, 400, { error: 'No puedes eliminarte a ti mismo' });
-        db.users = db.users.filter(u => u.id !== user.id);
-        // Retirar también las filas de ese vendedor
-        db.rows = db.rows.filter(r => r.ownerId !== user.id);
+        globalDb.users = globalDb.users.filter(u => u.id !== user.id);
+        // Eliminar filas de todos los módulos
+        modulesRegistry.modules.forEach(mod => {
+          const modData = loadModuleData(mod.id);
+          if (modData.rows) {
+            modData.rows = modData.rows.filter(r => r.ownerId !== user.id);
+            saveModuleData(mod.id, modData);
+          }
+        });
         saveSoon();
         return sendJSON(res, 200, { ok: true });
       }
@@ -400,23 +699,21 @@ const server = http.createServer(async (req, res) => {
       if (typeof body.name === 'string' && body.name.trim()) user.name = body.name.trim().slice(0, 120);
       if (typeof body.username === 'string' && body.username.trim()) {
         const nu = body.username.trim().toLowerCase();
-        if (nu !== user.username && db.users.find(u => u.username === nu)) {
+        if (nu !== user.username && globalDb.users.find(u => u.username === nu)) {
           return sendJSON(res, 400, { error: 'Ese nombre de usuario ya existe' });
         }
         user.username = nu;
       }
       const rolAnterior = user.role;
       if (ROLES.includes(body.role)) user.role = body.role;
-      // Si cambió de rol, liberar a quienes lo tenían como responsable pero ya no aplica
       if (rolAnterior !== user.role) {
-        db.users.forEach(function (u) {
+        globalDb.users.forEach(function (u) {
           if (u.supervisorId === user.id) {
             const permitidos = PADRE_VALIDO[u.role] || [];
             if (!permitidos.includes(user.role)) u.supervisorId = null;
           }
         });
       }
-      // Asignar responsable (supervisor para retail/kam; vendedor o KAM para promotor)
       if (body.supervisorId !== undefined) {
         const v = validarResponsable(user.role, body.supervisorId);
         if (v === 'INVALIDO') return sendJSON(res, 400, { error: 'Responsable no válido para ese rol' });
@@ -432,15 +729,19 @@ const server = http.createServer(async (req, res) => {
 
     return sendJSON(res, 404, { error: 'No encontrado' });
   } catch (err) {
+    console.error('Error:', err);
     return sendJSON(res, 500, { error: 'Error interno' });
   }
 });
 
-try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { /* ya existe */ }
-load();
+// Inicialización
+try { fs.mkdirSync(path.join(DATA_DIR, 'data'), { recursive: true }); } catch (e) { /* ya existe */ }
+loadGlobalData();
+loadModulesRegistry();
 migrate();
 seed();
+
 server.listen(PORT, HOST, () => {
-  console.log(`Planificación de Ventas corriendo en http://localhost:${PORT}`);
-  console.log(`Desde el celular, usa la IP de este equipo en la misma red (ej. http://192.168.x.x:${PORT})`);
+  console.log(`Rainbow Platform (Modular) corriendo en http://localhost:${PORT}`);
+  console.log(`Módulos activos: ${modulesRegistry.modules.filter(m => m.active).map(m => m.name).join(', ')}`);
 });

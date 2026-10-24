@@ -1,7 +1,10 @@
 node_modules/
 data.json
+data/
 *.log
 cloudflared
 cloudflared.exe
 .env
 .DS_Store
+*.zip
+cookies*.txt

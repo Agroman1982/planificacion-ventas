@@ -1,0 +1,157 @@
+{
+  "id": "ventas",
+  "name": "Planificación de Ventas",
+  "schema": {
+    "fields": [
+      {
+        "name": "dia",
+        "label": "Fecha",
+        "type": "date",
+        "required": true,
+        "width": 120,
+        "order": 1
+      },
+      {
+        "name": "semana",
+        "label": "Semana",
+        "type": "text",
+        "required": false,
+        "autoFill": "weekLabelFromDate",
+        "width": 150,
+        "order": 2
+      },
+      {
+        "name": "ubicacion",
+        "label": "Ubicación",
+        "type": "text",
+        "required": true,
+        "width": 150,
+        "order": 3
+      },
+      {
+        "name": "cliente",
+        "label": "Cliente",
+        "type": "text",
+        "required": true,
+        "width": 180,
+        "order": 4
+      },
+      {
+        "name": "producto",
+        "label": "Producto a promocionar",
+        "type": "text",
+        "required": false,
+        "width": 200,
+        "order": 5
+      },
+      {
+        "name": "trabajo",
+        "label": "Trabajo a realizar",
+        "type": "textarea",
+        "required": true,
+        "width": 250,
+        "order": 6
+      },
+      {
+        "name": "estado",
+        "label": "Estado",
+        "type": "select",
+        "required": true,
+        "options": ["Planificado", "En curso", "Realizado", "No realizado"],
+        "default": "Planificado",
+        "width": 120,
+        "order": 7
+      },
+      {
+        "name": "observaciones",
+        "label": "Observaciones",
+        "type": "textarea",
+        "required": false,
+        "width": 200,
+        "order": 8
+      },
+      {
+        "name": "resultado",
+        "label": "Resultado / Motivo",
+        "type": "textarea",
+        "required": false,
+        "width": 250,
+        "order": 9
+      },
+      {
+        "name": "ventaConcretar",
+        "label": "Venta a concretar (US$)",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "width": 150,
+        "order": 10
+      },
+      {
+        "name": "ventaRealizada",
+        "label": "Venta realizada (US$)",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "width": 150,
+        "order": 11
+      }
+    ],
+    "states": {
+      "values": ["Planificado", "En curso", "Realizado", "No realizado"],
+      "colors": {
+        "Planificado": "#9e9e9e",
+        "En curso": "#ff9800",
+        "Realizado": "#4caf50",
+        "No realizado": "#f44336"
+      },
+      "icons": {
+        "Planificado": "",
+        "En curso": "",
+        "Realizado": "✓",
+        "No realizado": "✗"
+      }
+    },
+    "views": {
+      "lista": {
+        "enabled": true,
+        "label": "Lista",
+        "icon": "📋",
+        "filters": ["semana", "estado", "owner", "fecha"],
+        "sortBy": "dia",
+        "columns": ["dia", "semana", "ubicacion", "cliente", "producto", "trabajo", "estado", "ventaConcretar", "ventaRealizada"]
+      },
+      "calendario": {
+        "enabled": true,
+        "label": "Calendario",
+        "icon": "📅",
+        "colorBy": "estado",
+        "showWeekends": true,
+        "dayFields": ["cliente", "trabajo", "estado"]
+      },
+      "resumen": {
+        "enabled": true,
+        "label": "Resumen",
+        "icon": "📈",
+        "groupBy": ["vendedor", "semana", "cliente"],
+        "metrics": ["ventaConcretar", "ventaRealizada", "cumplimiento"],
+        "exportFormat": "csv"
+      }
+    },
+    "permissions": {
+      "create": ["admin", "supervisor", "retail", "kam", "promotor"],
+      "edit": ["owner", "admin", "supervisor"],
+      "delete": ["owner", "admin"],
+      "viewAll": ["admin"],
+      "viewTeam": ["supervisor", "retail", "kam"]
+    },
+    "features": {
+      "quickStatusChange": true,
+      "resultDialog": true,
+      "autoWeekLabel": true,
+      "teamVisibility": true,
+      "exportCSV": true,
+      "ownerFilter": true
+    }
+  }
+}

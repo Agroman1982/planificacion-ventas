@@ -1,0 +1,204 @@
+{
+  "id": "i-d",
+  "name": "Investigación y Desarrollo",
+  "schema": {
+    "fields": [
+      {
+        "name": "codigo",
+        "label": "Código del Proyecto",
+        "type": "text",
+        "required": true,
+        "placeholder": "Ej: PROY-2026-001",
+        "width": 150,
+        "order": 1
+      },
+      {
+        "name": "nombre",
+        "label": "Nombre del Proyecto",
+        "type": "text",
+        "required": true,
+        "width": 250,
+        "order": 2
+      },
+      {
+        "name": "categoria",
+        "label": "Categoría",
+        "type": "select",
+        "required": true,
+        "options": ["Bioinsumo", "Fertilizante", "Fungicida", "Insecticida", "Bioestimulante", "Micronutriente", "Otro"],
+        "default": "Bioinsumo",
+        "width": 150,
+        "order": 3
+      },
+      {
+        "name": "fase",
+        "label": "Fase Actual",
+        "type": "select",
+        "required": true,
+        "options": ["Investigación inicial", "Desarrollo de formulación", "Pruebas de campo", "Validación regulatoria", "Escalamiento", "Lanzamiento", "Cancelado"],
+        "default": "Investigación inicial",
+        "width": 180,
+        "order": 4
+      },
+      {
+        "name": "fechaInicio",
+        "label": "Fecha de Inicio",
+        "type": "date",
+        "required": true,
+        "width": 130,
+        "order": 5
+      },
+      {
+        "name": "fechaFinEstimada",
+        "label": "Fecha Fin Estimada",
+        "type": "date",
+        "required": false,
+        "width": 130,
+        "order": 6
+      },
+      {
+        "name": "presupuesto",
+        "label": "Presupuesto (US$)",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "width": 150,
+        "order": 7
+      },
+      {
+        "name": "gastoAcumulado",
+        "label": "Gasto Acumulado (US$)",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "width": 150,
+        "order": 8
+      },
+      {
+        "name": "avance",
+        "label": "% de Avance",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "width": 100,
+        "order": 9
+      },
+      {
+        "name": "responsable",
+        "label": "Responsable",
+        "type": "text",
+        "required": false,
+        "placeholder": "Nombre del investigador responsable",
+        "width": 180,
+        "order": 10
+      },
+      {
+        "name": "equipo",
+        "label": "Equipo de Trabajo",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "Miembros del equipo separados por comas",
+        "width": 250,
+        "order": 11
+      },
+      {
+        "name": "objetivo",
+        "label": "Objetivo del Proyecto",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "¿Qué se busca lograr con este proyecto?",
+        "width": 300,
+        "order": 12
+      },
+      {
+        "name": "descripcion",
+        "label": "Descripción Técnica",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "Detalles técnicos del proyecto",
+        "width": 300,
+        "order": 13
+      },
+      {
+        "name": "resultados",
+        "label": "Resultados / Hallazgos",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "Resultados obtenidos hasta la fecha",
+        "width": 300,
+        "order": 14
+      },
+      {
+        "name": "riesgos",
+        "label": "Riesgos y Mitigaciones",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "Principales riesgos y cómo mitigarlos",
+        "width": 300,
+        "order": 15
+      }
+    ],
+    "states": {
+      "values": ["Investigación inicial", "Desarrollo de formulación", "Pruebas de campo", "Validación regulatoria", "Escalamiento", "Lanzamiento", "Cancelado"],
+      "colors": {
+        "Investigación inicial": "#9e9e9e",
+        "Desarrollo de formulación": "#2196f3",
+        "Pruebas de campo": "#ff9800",
+        "Validación regulatoria": "#9c27b0",
+        "Escalamiento": "#00bcd4",
+        "Lanzamiento": "#4caf50",
+        "Cancelado": "#f44336"
+      },
+      "icons": {
+        "Investigación inicial": "🔬",
+        "Desarrollo de formulación": "⚗",
+        "Pruebas de campo": "🌱",
+        "Validación regulatoria": "📋",
+        "Escalamiento": "📈",
+        "Lanzamiento": "🚀",
+        "Cancelado": "✗"
+      }
+    },
+    "views": {
+      "lista": {
+        "enabled": true,
+        "label": "Lista",
+        "icon": "📋",
+        "filters": ["fase", "categoria", "fecha"],
+        "sortBy": "fechaInicio",
+        "columns": ["codigo", "nombre", "categoria", "fase", "fechaInicio", "avance", "presupuesto"]
+      },
+      "calendario": {
+        "enabled": true,
+        "label": "Calendario",
+        "icon": "📅",
+        "colorBy": "fase",
+        "showWeekends": true,
+        "dayFields": ["codigo", "nombre", "fase"]
+      },
+      "resumen": {
+        "enabled": true,
+        "label": "Resumen",
+        "icon": "📈",
+        "groupBy": ["categoria", "fase", "responsable"],
+        "metrics": ["presupuesto", "gastoAcumulado", "avance"],
+        "exportFormat": "csv"
+      }
+    },
+    "permissions": {
+      "create": ["admin", "supervisor"],
+      "edit": ["owner", "admin", "supervisor"],
+      "delete": ["owner", "admin"],
+      "viewAll": ["admin"],
+      "viewTeam": ["supervisor"]
+    },
+    "features": {
+      "quickStatusChange": true,
+      "resultDialog": false,
+      "autoWeekLabel": false,
+      "teamVisibility": true,
+      "exportCSV": true,
+      "ownerFilter": true
+    }
+  }
+}

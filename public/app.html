@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Rainbow Platform</title>
+<meta name="theme-color" content="#1B755E">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  :root{ --bg:#1B755E; --card:#fff; --ink:#0F172A; --muted:#334155; --line:#B9C6C2; --brand:#1D4ED8; --brand-d:#1A45B8; --ok:#15803D; --warn:#B45309; --bad:#B91C1C; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+  .wrap{max-width:920px;margin:0 auto;padding:14px}
+  h1{font-size:20px;margin:0}
+  h2{font-size:16px;margin:0 0 10px}
+  button{font:inherit;cursor:pointer;border:none;border-radius:10px;padding:10px 14px;background:var(--brand);color:#fff;font-weight:600}
+  button:hover{background:var(--brand-d)}
+  button.ghost{background:#E9EDF4;color:var(--ink)}
+  button.small{padding:6px 10px;font-size:13px;border-radius:8px}
+  input,select,textarea{font:inherit;width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+  textarea{resize:vertical;min-height:60px}
+  label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px;font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  .hide{display:none!important}
+  .login{max-width:360px;margin:8vh auto}
+  .topbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700;color:#fff}
+  .muted{color:var(--muted)}
+  .act{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;cursor:pointer}
+  .act .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+  .act .meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-top:8px}
+  @media(max-width:560px){.act .meta{grid-template-columns:1fr}}
+  .act .k{font-size:12px;color:var(--muted);font-weight:600}
+  .act .v{font-size:14px}
+  .money{font-variant-numeric:tabular-nums;font-weight:700}
+  .overlay{position:fixed;inset:0;background:rgba(15,22,35,.45);display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto;z-index:50}
+  .modal{background:#fff;border-radius:16px;max-width:560px;width:100%;padding:18px;margin:4vh 0}
+  .module-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(250px, 1fr));gap:16px;margin-top:14px}
+  .module-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;cursor:pointer;transition:transform .1s}
+  .module-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1)}
+  .module-icon{font-size:32px;margin-bottom:8px}
+  .module-name{font-size:16px;font-weight:700;margin-bottom:4px}
+  .module-desc{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- LOGIN -->
+  <div id="login" class="login">
+    <div class="card">
+      <h1>Rainbow Platform</h1>
+      <p class="muted" style="margin:6px 0 16px">Inicia sesión para acceder a los módulos.</p>
+      <div class="grid">
+        <div style="grid-column:1/-1">
+          <label>Usuario</label>
+          <input id="lu" autocomplete="username" placeholder="hector">
+        </div>
+        <div style="grid-column:1/-1">
+          <label>Contraseña</label>
+          <input id="lp" type="password" autocomplete="current-password" placeholder="••••••">
+        </div>
+      </div>
+      <button id="lbtn" style="width:100%;margin-top:14px">Entrar</button>
+      <div id="lerr" class="muted" style="color:var(--bad);font-size:13px;margin-top:8px;min-height:18px"></div>
+    </div>
+  </div>
+
+  <!-- MODULE SELECTOR -->
+  <div id="moduleSelector" class="hide">
+    <div class="topbar">
+      <div>
+        <div style="font-weight:700;font-size:18px" id="whoName">—</div>
+        <div style="font-size:13px;color:var(--muted)" id="whoRole"></div>
+      </div>
+      <button class="ghost small" id="logoutBtn">Salir</button>
+    </div>
+    <div class="card">
+      <h2>Selecciona un módulo</h2>
+      <div class="module-grid" id="moduleGrid"></div>
+    </div>
+  </div>
+
+  <!-- MODULE VIEW -->
+  <div id="moduleView" class="hide">
+    <div class="topbar">
+      <div>
+        <div style="font-weight:700;font-size:18px" id="moduleTitle">—</div>
+        <div style="font-size:13px;color:var(--muted)" id="moduleSubtitle"></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="ghost small" id="backBtn">← Volver</button>
+        <button class="ghost small" id="logoutBtn2">Salir</button>
+      </div>
+    </div>
+
+    <div class="card" id="formCard">
+      <h2 id="formTitle">Nuevo registro</h2>
+      <div id="dynamicForm"></div>
+      <button id="saveBtn" style="width:100%;margin-top:12px">Guardar</button>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <input id="searchInput" placeholder="Buscar..." style="flex:1">
+        <button class="ghost small" id="exportBtn">Exportar CSV</button>
+      </div>
+      <div id="rowsList"></div>
+      <div id="emptyMsg" class="center muted hide">Sin registros todavía.</div>
+    </div>
+  </div>
+
+  <!-- DETAIL MODAL -->
+  <div id="detailModal" class="overlay hide">
+    <div class="modal">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2>Detalle</h2>
+        <button class="ghost small" id="closeDetail">Cerrar</button>
+      </div>
+      <div id="detailContent"></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button id="editBtn" style="flex:1">Editar</button>
+        <button class="ghost" id="deleteBtn" style="flex:1;background:var(--bad);color:#fff">Eliminar</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/modules.js"></script>
+<script src="js/renderer.js"></script>
+<script>
+(function(){
+  var me=null, currentModule='ventas', moduleSchema=null, rows=[], ownerNames={}, editingId=null;
+  
+  function api(method, path, body){
+    return fetch(path,{method:method,headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',body:body?JSON.stringify(body):undefined}).then(function(r){
+      return r.json().then(function(j){ return {ok:r.ok, status:r.status, data:j}; });
+    });
+  }
+  function $(id){return document.getElementById(id);}
+  function esc(s){return s==null?'':String(s);}
+  
+  // Login
+  $('lbtn').onclick=doLogin;
+  $('lp').addEventListener('keydown',function(e){ if(e.key==='Enter') doLogin(); });
+  
+  function doLogin(){
+    $('lerr').textContent='';
+    api('POST','/api/login',{username:$('lu').value.trim(),password:$('lp').value}).then(function(res){
+      if(res.ok){ start(res.data.user); }
+      else $('lerr').textContent=res.data.error||'Error de login';
+    });
+  }
+  
+  function start(user){
+    me=user;
+    $('login').classList.add('hide');
+    $('moduleSelector').classList.remove('hide');
+    $('whoName').textContent=me.name;
+    $('whoRole').textContent=me.role==='admin'?'Administrador':me.role;
+    loadModules();
+  }
+  
+  function loadModules(){
+    api('GET','/api/modules').then(function(res){
+      if(!res.ok) return;
+      var modules=res.data.modules||[];
+      var grid=$('moduleGrid');
+      grid.innerHTML='';
+      modules.forEach(function(mod){
+        var card=document.createElement('div');
+        card.className='module-card';
+        card.innerHTML='<div class="module-icon">'+esc(mod.icon)+'</div><div class="module-name">'+esc(mod.name)+'</div><div class="module-desc">'+esc(mod.description)+'</div>';
+        card.onclick=function(){ openModule(mod.id); };
+        grid.appendChild(card);
+      });
+    });
+  }
+  
+  function openModule(moduleId){
+    currentModule=moduleId;
+    $('moduleSelector').classList.add('hide');
+    $('moduleView').classList.remove('hide');
+    
+    api('GET','/api/modules/'+moduleId+'/schema').then(function(res){
+      if(res.ok){
+        moduleSchema=res.data;
+        $('moduleTitle').textContent=moduleSchema.name;
+        $('moduleSubtitle').textContent='Módulo activo';
+        renderForm();
+        loadRows();
+      }
+    });
+  }
+  
+  function renderForm(){
+    ModuleRenderer.renderForm('dynamicForm', moduleSchema, {}, me.role==='admin');
+  }
+  
+  function loadRows(){
+    api('GET','/api/modules/'+currentModule+'/rows').then(function(res){
+      if(!res.ok) return;
+      rows=res.data.rows||[];
+      ownerNames=res.data.ownerNames||{};
+      renderRows();
+    });
+  }
+  
+  function renderRows(){
+    var list=$('rowsList');
+    list.innerHTML='';
+    $('emptyMsg').classList.toggle('hide', rows.length>0);
+    
+    rows.forEach(function(row){
+      var card=ModuleRenderer.renderCard(row, moduleSchema, ownerNames, me);
+      card.onclick=function(){ openDetail(row.id); };
+      list.appendChild(card);
+    });
+  }
+  
+  function openDetail(rowId){
+    var row=rows.find(function(r){ return r.id===rowId; });
+    if(!row) return;
+    
+    var content=$('detailContent');
+    content.innerHTML='';
+    
+    moduleSchema.schema.fields.forEach(function(field){
+      var div=document.createElement('div');
+      div.style.marginBottom='10px';
+      var label=document.createElement('div');
+      label.className='k';
+      label.textContent=field.label;
+      var value=document.createElement('div');
+      value.className='v';
+      if(field.type==='number'){
+        value.innerHTML='<span class="money">US$ '+Number(row[field.name]||0).toLocaleString('en-US',{minimumFractionDigits:2})+'</span>';
+      } else {
+        value.textContent=row[field.name]||'—';
+      }
+      div.appendChild(label);
+      div.appendChild(value);
+      content.appendChild(div);
+    });
+    
+    $('detailModal').classList.remove('hide');
+    editingId=rowId;
+  }
+  
+  // Event handlers
+  $('logoutBtn').onclick=$('logoutBtn2').onclick=function(){
+    api('POST','/api/logout').then(function(){ location.reload(); });
+  };
+  
+  $('backBtn').onclick=function(){
+    $('moduleView').classList.add('hide');
+    $('moduleSelector').classList.remove('hide');
+    currentModule='ventas';
+    moduleSchema=null;
+  };
+  
+  $('closeDetail').onclick=function(){
+    $('detailModal').classList.add('hide');
+    editingId=null;
+  };
+  
+  $('saveBtn').onclick=function(){
+    var values=ModuleRenderer.getFormValues(moduleSchema);
+    values.ownerId=me.id;
+    
+    var url='/api/modules/'+currentModule+'/rows';
+    var method='POST';
+    if(editingId){
+      url+='/'+editingId;
+      method='PUT';
+    }
+    
+    api(method, url, values).then(function(res){
+      if(res.ok){
+        loadRows();
+        renderForm();
+        editingId=null;
+        $('formTitle').textContent='Nuevo registro';
+      } else {
+        alert(res.data.error||'Error al guardar');
+      }
+    });
+  };
+  
+  $('editBtn').onclick=function(){
+    if(!editingId) return;
+    var row=rows.find(function(r){ return r.id===editingId; });
+    if(!row) return;
+    
+    $('detailModal').classList.add('hide');
+    $('formTitle').textContent='Editar registro';
+    ModuleRenderer.renderForm('dynamicForm', moduleSchema, row, me.role==='admin');
+    window.scrollTo(0,0);
+  };
+  
+  $('deleteBtn').onclick=function(){
+    if(!editingId) return;
+    if(!confirm('¿Eliminar este registro?')) return;
+    
+    api('DELETE','/api/modules/'+currentModule+'/rows/'+editingId).then(function(res){
+      if(res.ok){
+        loadRows();
+        $('detailModal').classList.add('hide');
+        editingId=null;
+      }
+    });
+  };
+  
+  $('exportBtn').onclick=function(){
+    var url='/api/modules/'+currentModule+'/export';
+    fetch(url,{credentials:'same-origin'}).then(function(r){
+      if(!r.ok) return alert('Error al exportar');
+      return r.blob().then(function(blob){
+        var a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download=currentModule+'_export.csv';
+        a.click();
+      });
+    });
+  };
+  
+  // Search filter
+  $('searchInput').addEventListener('input',function(){
+    var term=$('searchInput').value.toLowerCase();
+    var cards=document.querySelectorAll('.act');
+    cards.forEach(function(card){
+      var text=card.textContent.toLowerCase();
+      card.style.display=text.includes(term)?'':'none';
+    });
+  });
+  
+  // Check auth on load
+  api('GET','/api/me').then(function(res){
+    if(res.ok){ start(res.data.user); }
+    else { $('login').classList.remove('hide'); }
+  });
+  
+})();
+</script>
+</body>
+</html>
