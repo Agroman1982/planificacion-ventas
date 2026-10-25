@@ -358,6 +358,10 @@
       <p class="muted" id="marcarHint" style="margin:0 0 10px"></p>
       <label id="marcarLabel">Comentario</label>
       <textarea id="marcarTexto" placeholder=""></textarea>
+      <div id="marcarVentaWrap" class="hide" style="margin-top:12px">
+        <label>Venta realizada (US$)</label>
+        <input id="marcarVentaRealizada" type="number" step="0.01" min="0" placeholder="0.00">
+      </div>
       <button id="marcarGuardar" style="width:100%;margin-top:12px">Guardar</button>
     </div>
   </div>
@@ -1229,10 +1233,13 @@
       $('marcarTitle').textContent='Marcar como realizada';
       $('marcarLabel').textContent='Resultado de la actividad';
       $('marcarTexto').placeholder='¿Cómo te fue? Ventas logradas, acuerdos, próximos pasos...';
+      $('marcarVentaWrap').classList.remove('hide');
+      $('marcarVentaRealizada').value = r.ventaRealizada || '';
     } else {
       $('marcarTitle').textContent='Marcar como no realizada';
       $('marcarLabel').textContent='Motivo por el que no se realizó';
       $('marcarTexto').placeholder='¿Por qué se canceló o no se pudo realizar?';
+      $('marcarVentaWrap').classList.add('hide');
     }
     $('marcarTexto').value = r.resultado || '';
     $('marcarModal').classList.remove('hide');
@@ -1244,10 +1251,11 @@
   $('marcarGuardar').onclick=function(){
     if(!marcarRow) return;
     var r=marcarRow;
+    var ventaRealizada = marcarEstadoNuevo==='Realizado' ? Number($('marcarVentaRealizada').value) : (r.ventaRealizada||0);
     var body={
       semana:r.semana||'', dia:r.dia||'', ubicacion:r.ubicacion||'', cliente:r.cliente||'',
       producto:r.producto||'', trabajo:r.trabajo||'', ventaConcretar:r.ventaConcretar||0,
-      estado:marcarEstadoNuevo, ventaRealizada:r.ventaRealizada||0, observaciones:r.observaciones||'',
+      estado:marcarEstadoNuevo, ventaRealizada:ventaRealizada, observaciones:r.observaciones||'',
       resultado:$('marcarTexto').value.trim()
     };
     api('PUT', apiUrl('/rows/'+r.id), body).then(function(res){
