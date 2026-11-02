@@ -131,6 +131,20 @@
   .meta-team td.r{text-align:right;font-variant-numeric:tabular-nums}
   .meta-team tr:last-child td{border-bottom:none}
   .meta-goal-input{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font-size:14px;text-align:right}
+  /* Month tabs */
+  .mtab{padding:5px 10px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--muted);transition:all .15s}
+  .mtab:hover{background:#E9EDF4}
+  .mtab.active{background:var(--bg);color:#fff;border-color:var(--bg)}
+  .mtab.total{background:#FEF3C7;color:#92400E;border-color:#FCD34D}
+  .mtab.total.active{background:#B45309;color:#fff;border-color:#B45309}
+  /* ToDo panel */
+  .todo-panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px;box-shadow:var(--shadow)}
+  .todo-panel h3{margin:0 0 10px;font-size:15px;font-weight:700}
+  .todo-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:#FFFDE7}
+  .todo-item .ti-info{flex:1;min-width:0}
+  .todo-item .ti-cliente{font-weight:700;font-size:14px}
+  .todo-item .ti-meta{font-size:12px;color:var(--muted);margin-top:2px}
+  .todo-item .ti-actions{display:flex;gap:6px;flex-shrink:0}
 </style>
 </head>
 <body>
@@ -166,6 +180,7 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="ghost small hide" id="csvBtn">Exportar CSV</button>
         <button class="ghost small hide" id="goalsBtn">Metas</button>
+        <button class="ghost small hide" id="todoBtn">Asignar ToDo</button>
         <button class="ghost small hide" id="usersBtn">Gestionar vendedores</button>
         <button class="ghost small" id="logoutBtn">Salir</button>
       </div>
@@ -175,11 +190,16 @@
 
     <!-- Meta de ventas mensual -->
     <div id="metaPanel" class="meta-panel hide"></div>
+    <!-- Pestañas de mes + TOTAL -->
+    <div id="monthTabs" class="hide" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px;box-shadow:var(--shadow)"></div>
 
     <div class="card" id="moduleSelectorCard" style="display:none">
       <label>Módulo activo</label>
       <select id="moduleSelector" style="width:100%"></select>
     </div>
+
+    <!-- ToDo: tareas por programar -->
+    <div id="todoSection" class="todo-panel hide"></div>
 
     <!-- Filtros -->
     <div class="card">
@@ -390,6 +410,49 @@
     </div>
   </div>
 
+  <!-- Modal ToDo: asignar tarea al representante -->
+  <div id="todoModal" class="overlay hide">
+    <div class="modal">
+      <div class="row-toolbar">
+        <h2>Asignar ToDo</h2>
+        <button class="ghost small" id="closeTodo">Cerrar</button>
+      </div>
+      <p class="muted" style="margin:0 0 10px">Crea una tarea para que el representante la programe en su calendario semanal. Los datos se pre-cargaran al abrir el formulario.</p>
+      <div class="grid">
+        <div style="grid-column:1/-1" id="todoAssigneeWrap">
+          <label>Asignar a</label>
+          <select id="todoAssignee"></select>
+        </div>
+        <div>
+          <label>Cliente</label>
+          <input id="todoCliente" placeholder="Nombre del cliente">
+        </div>
+        <div>
+          <label>Ubicación</label>
+          <input id="todoUbicacion" placeholder="Zona / ruta / ciudad">
+        </div>
+        <div>
+          <label>Producto a promocionar</label>
+          <input id="todoProducto" placeholder="Ej: Bioinsumo X">
+        </div>
+        <div>
+          <label>Venta a concretar (US$)</label>
+          <input id="todoVenta" type="number" step="0.01" min="0" placeholder="0.00">
+        </div>
+        <div style="grid-column:1/-1">
+          <label>Trabajo a realizar</label>
+          <textarea id="todoTrabajo" placeholder="Qué se va a hacer en la visita"></textarea>
+        </div>
+        <div style="grid-column:1/-1">
+          <label>Observaciones</label>
+          <textarea id="todoObs" placeholder="Notas adicionales para el representante"></textarea>
+        </div>
+      </div>
+      <button id="saveTodo" style="width:100%;margin-top:12px">Asignar tarea</button>
+      <div id="todoErr" class="err"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -405,6 +468,8 @@
   var teamGoals = []; // Metas del equipo (para admin/supervisor)
   var goalsCache = {}; // Metas cargadas en el modal por userId
   var MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var MES_ABBR_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  var selectedMonthTab = -1; // -1 = no seleccionado (default: mes actual), 0=TOTAL, 1-12 = mes
   
   function api(method, path, body){
     return fetch(path,{method:method,headers:{'Content-Type':'application/json'},
@@ -503,16 +568,18 @@
       }
       // Re-render con el estado actualizado (por si tieneEquipo cambió)
       pintarBanner();
+      renderMonthTabs();
       renderMetaPanel();
       renderRows();
       if(view==='cal') renderCalendar();
       if(view==='res') renderResumen();
     });
     pintarBanner();
-    renderMetaPanel();
+    renderMonthTabs();
     renderMetaPanel();
     loadModules();
     loadRows();
+    initTodo();
   }
   
   // ---- Cargar módulos disponibles ----
@@ -563,46 +630,152 @@
   }
 
   // ---- Meta de ventas mensual ----
+  function renderMonthTabs(){
+    var container = $('monthTabs');
+    container.innerHTML = '';
+    container.classList.remove('hide');
+    var html = '';
+    // Pestaña TOTAL
+    var totalActive = selectedMonthTab === 0;
+    html += '<span class="mtab total' + (totalActive?' active':'') + '" data-mt="0">TOTAL</span>';
+    // Pestañas por mes
+    for(var i=1; i<=12; i++){
+      var isActive = selectedMonthTab === i;
+      html += '<span class="mtab' + (isActive?' active':'') + '" data-mt="'+i+'">' + MES_ABBR_SHORT[i-1] + '</span>';
+    }
+    container.innerHTML = html;
+    container.querySelectorAll('.mtab').forEach(function(tab){
+      tab.onclick = function(){
+        selectedMonthTab = parseInt(this.getAttribute('data-mt'));
+        renderMonthTabs();
+        renderMetaPanel();
+      };
+    });
+  }
+
   function renderMetaPanel(){
     var now = new Date();
-    var curMonth = now.getMonth()+1;
     var curYear = now.getFullYear();
-    var monthName = MONTH_NAMES[now.getMonth()];
 
-    // Calcular realizado del mes actual por vendedor
+    // Determinar mes/año a mostrar según pestaña seleccionada
+    var isTotal = selectedMonthTab === 0;
+    var isCurrentDefault = selectedMonthTab === -1;
+    var displayMonth = isTotal ? 0 : (isCurrentDefault ? (now.getMonth()+1) : selectedMonthTab);
+    var monthName = isTotal ? 'Total anual ' + curYear : MONTH_NAMES[displayMonth-1] + ' ' + curYear;
+
+    // Calcular realizado por vendedor según el mes seleccionado (o todo el año si TOTAL)
     var realizPorUser = {};
     rows.forEach(function(r){
       if(!r.dia) return;
       var p = r.dia.split('-');
       if(p.length < 3) return;
       var rowYear = +p[0], rowMonth = +p[1];
-      if(rowYear === curYear && rowMonth === curMonth) {
+      if(rowYear === curYear && (isTotal || rowMonth === displayMonth)) {
         realizPorUser[r.ownerId] = (realizPorUser[r.ownerId]||0) + Number(r.ventaRealizada||0);
       }
     });
 
-    // ¿Mostrar panel de equipo (admin/supervisor con equipo) o individual?
-    var showTeam = veVarios() && !adminOwner; // admin sin filtro de 1 solo
-    // Si es admin/supervisor filtrando a 1 vendedor, mostrar panel individual de ese vendedor
+    // Cargar metas según pestaña: si es TOTAL, sumar todas las del año; si no, la del mes
+    // teamGoals ya viene cargado solo para el mes actual. Para otros meses hay que consultar la API.
+    // Pero para simplicidad, si no es el mes actual, usamos fetch asíncrono.
+    // Por ahora, si es el mes actual usamos teamGoals; si no, mostramos lo que tengamos y hacemos fetch.
+    if(!isTotal && !isCurrentDefault && displayMonth !== (now.getMonth()+1)){
+      // Mes diferente al actual: fetch metas para ese mes
+      api('GET', '/api/goals?month=' + displayMonth + '&year=' + curYear).then(function(res){
+        if(!res.ok) return;
+        var fetchedGoals = res.data.goals || [];
+        renderMetaPanelWithGoals(fetchedGoals, displayMonth, isTotal, monthName, curYear, realizPorUser);
+      });
+      return;
+    }
+    if(isTotal){
+      // Fetch todas las metas del año
+      api('GET', '/api/goals?month=0&year=' + curYear).then(function(res){
+        if(!res.ok) return;
+        // Si month=0 no funciona en el server, traer todos los meses y sumar
+        var allGoals = (res.data.goals) || [];
+        renderMetaPanelTotal(allGoals, curYear, realizPorUser);
+      });
+      // Fallback: si el endpoint no soporta month=0, traer mes por mes
+      return;
+    }
+    // Mes actual: usar teamGoals
+    renderMetaPanelWithGoals(teamGoals, displayMonth, false, monthName, curYear, realizPorUser);
+  }
+
+  function renderMetaPanelTotal(allGoals, curYear, realizPorUser){
+    // Sumar metas por usuario (todos los meses del año)
+    var goalByUser = {};
+    allGoals.forEach(function(g){
+      goalByUser[g.userId] = (goalByUser[g.userId]||0) + g.amount;
+    });
+    var monthName = 'Total anual ' + curYear;
+    var showTeam = veVarios() && !adminOwner;
     var showSingle = !veVarios() || (veVarios() && adminOwner);
 
     if(showSingle){
-      // Panel individual: mi meta o la del vendedor filtrado
       var targetUid = (veVarios() && adminOwner) ? adminOwner : me.id;
       var targetName = (veVarios() && adminOwner) ? (ownerNames[adminOwner]||'—') : me.name;
-      var goalAmount = 0;
-      // Buscar la meta
-      if(targetUid === me.id && myGoal) goalAmount = myGoal.amount;
-      else {
-        var g = teamGoals.find(function(tg){ return tg.userId === targetUid; });
-        if(g) goalAmount = g.amount;
-      }
+      var goalAmount = goalByUser[targetUid] || 0;
       var realizado = realizPorUser[targetUid] || 0;
       var falta = Math.max(0, goalAmount - realizado);
       var cumple = goalAmount > 0 ? (realizado/goalAmount*100) : 0;
       var overBar = cumple >= 100;
+      var html = '<h3>Meta de ventas — ' + monthName + '</h3>';
+      html += '<div class="meta-grid">';
+      html += '<div class="meta-box"><div class="lbl">Meta anual</div><div class="val">' + money(goalAmount) + '</div></div>';
+      html += '<div class="meta-box"><div class="lbl">Realizado</div><div class="val">' + money(realizado) + '</div></div>';
+      html += '<div class="meta-box"><div class="lbl">Falta</div><div class="val">' + money(falta) + '</div><div class="sub">' + (goalAmount>0 ? (overBar?'¡Meta cumplida!' : 'para llegar a la meta') : 'sin meta asignada') + '</div></div>';
+      html += '<div class="meta-box"><div class="lbl">% Cumplimiento</div><div class="val" style="' + (overBar?'color:#FFD700':'') + '">' + cumple.toFixed(0) + '%</div></div>';
+      html += '</div>';
+      html += '<div class="meta-bar"><div class="meta-bar-fill' + (overBar?' over':'') + '" style="width:' + Math.min(100, cumple) + '%"></div></div>';
+      if(veVarios() && adminOwner) html += '<div style="margin-top:10px;font-size:13px;opacity:.8">Vendedor: <b>' + esc(targetName) + '</b></div>';
+      $('metaPanel').innerHTML = html;
+      $('metaPanel').classList.remove('hide');
+    } else if(showTeam){
+      var html = '<h3>Metas de venta — ' + monthName + '</h3>';
+      html += '<div class="meta-team"><table>';
+      html += '<tr><th>Vendedor</th><th class="r">Meta anual</th><th class="r">Realizado</th><th class="r">Falta</th><th class="r">%</th></tr>';
+      var totGoal = 0, totReal = 0;
+      var vendedores = allUsers.filter(function(u){ return u.id !== me.id || me.role === 'admin'; });
+      if(me.role === 'supervisor') vendedores = allUsers.filter(function(u){ return u.id !== me.id; });
+      vendedores.forEach(function(u){
+        var goal = goalByUser[u.id] || 0;
+        var real = realizPorUser[u.id] || 0;
+        var flt = Math.max(0, goal - real);
+        var pct = goal > 0 ? (real/goal*100) : 0;
+        totGoal += goal; totReal += real;
+        var pctColor = pct >= 100 ? '#FFD700' : (pct >= 75 ? '#86EFAC' : (pct < 50 ? '#FCA5A5' : '#fff'));
+        html += '<tr><td>' + esc(u.name) + '</td><td class="r">' + money(goal) + '</td><td class="r">' + money(real) + '</td><td class="r">' + money(flt) + '</td><td class="r" style="color:' + pctColor + '">' + pct.toFixed(0) + '%</td></tr>';
+      });
+      var totFalta = Math.max(0, totGoal - totReal);
+      var totPct = totGoal > 0 ? (totReal/totGoal*100) : 0;
+      html += '<tr style="font-weight:800;background:rgba(255,255,255,.1)"><td>Total</td><td class="r">' + money(totGoal) + '</td><td class="r">' + money(totReal) + '</td><td class="r">' + money(totFalta) + '</td><td class="r">' + totPct.toFixed(0) + '%</td></tr>';
+      html += '</table></div>';
+      html += '<div class="meta-bar"><div class="meta-bar-fill' + (totPct>=100?' over':'') + '" style="width:' + Math.min(100, totPct) + '%"></div></div>';
+      $('metaPanel').innerHTML = html;
+      $('metaPanel').classList.remove('hide');
+    } else {
+      $('metaPanel').classList.add('hide');
+    }
+  }
 
-      var html = '<h3>Meta de ventas — ' + monthName + ' ' + curYear + '</h3>';
+  function renderMetaPanelWithGoals(goalsList, displayMonth, isTotal, monthName, curYear, realizPorUser){
+    var showTeam = veVarios() && !adminOwner;
+    var showSingle = !veVarios() || (veVarios() && adminOwner);
+
+    if(showSingle){
+      var targetUid = (veVarios() && adminOwner) ? adminOwner : me.id;
+      var targetName = (veVarios() && adminOwner) ? (ownerNames[adminOwner]||'—') : me.name;
+      var goalAmount = 0;
+      var g = goalsList.find(function(tg){ return tg.userId === targetUid; });
+      if(g) goalAmount = g.amount;
+      else if(targetUid === me.id && myGoal) goalAmount = myGoal.amount;
+      var realizado = realizPorUser[targetUid] || 0;
+      var falta = Math.max(0, goalAmount - realizado);
+      var cumple = goalAmount > 0 ? (realizado/goalAmount*100) : 0;
+      var overBar = cumple >= 100;
+      var html = '<h3>Meta de ventas — ' + monthName + '</h3>';
       html += '<div class="meta-grid">';
       html += '<div class="meta-box"><div class="lbl">Meta</div><div class="val">' + money(goalAmount) + '</div></div>';
       html += '<div class="meta-box"><div class="lbl">Realizado</div><div class="val">' + money(realizado) + '</div></div>';
@@ -610,23 +783,18 @@
       html += '<div class="meta-box"><div class="lbl">% Cumplimiento</div><div class="val" style="' + (overBar?'color:#FFD700':'') + '">' + cumple.toFixed(0) + '%</div></div>';
       html += '</div>';
       html += '<div class="meta-bar"><div class="meta-bar-fill' + (overBar?' over':'') + '" style="width:' + Math.min(100, cumple) + '%"></div></div>';
-      if(veVarios() && adminOwner) {
-        html += '<div style="margin-top:10px;font-size:13px;opacity:.8">Vendedor: <b>' + esc(targetName) + '</b></div>';
-      }
+      if(veVarios() && adminOwner) html += '<div style="margin-top:10px;font-size:13px;opacity:.8">Vendedor: <b>' + esc(targetName) + '</b></div>';
       $('metaPanel').innerHTML = html;
       $('metaPanel').classList.remove('hide');
     } else if(showTeam){
-      // Panel de equipo: tabla con metas y avance de cada vendedor
-      var html = '<h3>Metas de venta — ' + monthName + ' ' + curYear + '</h3>';
+      var html = '<h3>Metas de venta — ' + monthName + '</h3>';
       html += '<div class="meta-team"><table>';
       html += '<tr><th>Vendedor</th><th class="r">Meta</th><th class="r">Realizado</th><th class="r">Falta</th><th class="r">%</th></tr>';
       var totGoal = 0, totReal = 0;
-      // Para cada vendedor visible
       var vendedores = allUsers.filter(function(u){ return u.id !== me.id || me.role === 'admin'; });
-      // Si supervisor, filtrar solo su equipo
       if(me.role === 'supervisor') vendedores = allUsers.filter(function(u){ return u.id !== me.id; });
       vendedores.forEach(function(u){
-        var g = teamGoals.find(function(tg){ return tg.userId === u.id; });
+        var g = goalsList.find(function(tg){ return tg.userId === u.id; });
         var goal = g ? g.amount : 0;
         var real = realizPorUser[u.id] || 0;
         var flt = Math.max(0, goal - real);
@@ -639,7 +807,6 @@
       var totPct = totGoal > 0 ? (totReal/totGoal*100) : 0;
       html += '<tr style="font-weight:800;background:rgba(255,255,255,.1)"><td>Total</td><td class="r">' + money(totGoal) + '</td><td class="r">' + money(totReal) + '</td><td class="r">' + money(totFalta) + '</td><td class="r">' + totPct.toFixed(0) + '%</td></tr>';
       html += '</table></div>';
-      // Barra de progreso global
       html += '<div class="meta-bar"><div class="meta-bar-fill' + (totPct>=100?' over':'') + '" style="width:' + Math.min(100, totPct) + '%"></div></div>';
       $('metaPanel').innerHTML = html;
       $('metaPanel').classList.remove('hide');
@@ -1401,6 +1568,171 @@
     $('calView').classList.add('hide'); $('resView').classList.remove('hide');
     renderResumen();
   }
+
+  // ---- ToDo: tareas pre-asignadas por supervisor ----
+  var todoList = [];
+
+  // Mostrar/ocultar botón "Asignar ToDo" según rol
+  // y cargar ToDo al iniciar
+  function initTodo(){
+    if(me.role === 'admin' || me.role === 'supervisor'){
+      $('todoBtn').classList.remove('hide');
+    }
+    loadTodos();
+  }
+
+  function loadTodos(){
+    api('GET', '/api/todos').then(function(res){
+      if(!res.ok) return;
+      todoList = res.data.todos || [];
+      renderTodoSection();
+    });
+  }
+
+  function renderTodoSection(){
+    var section = $('todoSection');
+    if(!todoList.length){
+      section.classList.add('hide');
+      return;
+    }
+    section.classList.remove('hide');
+    var html = '<h3>Por programar (' + todoList.length + ')</h3>';
+    html += '<p class="muted" style="margin:0 0 10px;font-size:13px">Tareas asignadas pendientes de programar. Haz click en "Programar" para agendarlas en tu calendario.</p>';
+    todoList.forEach(function(t){
+      html += '<div class="todo-item">';
+      html += '<div class="ti-info">';
+      html += '<div class="ti-cliente">' + esc(t.cliente || 'Sin cliente') + '</div>';
+      if(t.ubicacion) html += '<div class="ti-meta">' + esc(t.ubicacion) + '</div>';
+      if(t.producto) html += '<div class="ti-meta">Producto: ' + esc(t.producto) + '</div>';
+      if(t.trabajo) html += '<div class="ti-meta">' + esc(t.trabajo) + '</div>';
+      if(t.ventaConcretar > 0) html += '<div class="ti-meta">Venta objetivo: ' + money(t.ventaConcretar) + '</div>';
+      if(t.observaciones) html += '<div class="ti-meta">Obs: ' + esc(t.observaciones) + '</div>';
+      if(veVarios() && t.assigneeName) html += '<div class="ti-meta">Asignado a: <b>' + esc(t.assigneeName) + '</b></div>';
+      html += '</div>';
+      html += '<div class="ti-actions">';
+      // El rep puede programar; el admin/supervisor también puede programar o borrar
+      html += '<button class="small" onclick="window.__programarTodo(\'' + t.id + '\')">Programar</button>';
+      if(me.role === 'admin' || me.role === 'supervisor'){
+        html += '<button class="danger small" onclick="window.__deleteTodo(\'' + t.id + '\')">Borrar</button>';
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+    section.innerHTML = html;
+  }
+
+  // Funciones globales para los onclick inline
+  window.__programarTodo = function(todoId){
+    var t = todoList.find(function(x){ return x.id === todoId; });
+    if(!t) return;
+    // Pre-cargar el formulario con los datos del ToDo
+    showList();
+    resetForm();
+    $('iCliente').value = t.cliente || '';
+    $('iUbicacion').value = t.ubicacion || '';
+    $('iProducto').value = t.producto || '';
+    $('iTrabajo').value = t.trabajo || '';
+    $('iConcretar').value = t.ventaConcretar || '';
+    $('iObs').value = t.observaciones || '';
+    $('iEstado').value = 'Planificado';
+    // Si admin, seleccionar el rep asignado
+    if(me.role === 'admin' && t.assigneeId){
+      var repSel = $('iRep');
+      if(repSel) repSel.value = t.assigneeId;
+    }
+    // Enfocar el campo de día para que el rep elija cuándo programarlo
+    $('iDia').focus();
+    // Scroll al formulario
+    window.scrollTo({top:0, behavior:'smooth'});
+    // Guardar el todoId para que al guardar la actividad se elimine el ToDo
+    pendingTodoId = todoId;
+  };
+
+  window.__deleteTodo = function(todoId){
+    if(!confirm('¿Eliminar esta tarea ToDo?')) return;
+    api('DELETE', '/api/todos/' + todoId).then(function(res){
+      if(res.ok) loadTodos();
+      else alert(res.data.error || 'No se pudo eliminar');
+    });
+  };
+
+  var pendingTodoId = null;
+
+  // Modal para crear ToDo
+  $('todoBtn').onclick = function(){ openTodoModal(); };
+  $('closeTodo').onclick = function(){ $('todoModal').classList.add('hide'); };
+  $('todoModal').addEventListener('click', function(e){ if(e.target === $('todoModal')) $('todoModal').classList.add('hide'); });
+
+  function openTodoModal(){
+    // Llenar select de representantes
+    var reps = allUsers.filter(function(u){ return ['retail','kam','promotor'].indexOf(u.role) >= 0; });
+    var sel = $('todoAssignee');
+    sel.innerHTML = '';
+    reps.forEach(function(u){
+      var o = document.createElement('option');
+      o.value = u.id;
+      o.textContent = u.name + ' (' + (ROLE_LABEL[u.role]||u.role) + ')';
+      sel.appendChild(o);
+    });
+    // Si admin filtró a un vendedor, pre-seleccionarlo
+    if(me.role === 'admin' && adminOwner) sel.value = adminOwner;
+    // Limpiar campos
+    $('todoCliente').value = ''; $('todoUbicacion').value = ''; $('todoProducto').value = '';
+    $('todoTrabajo').value = ''; $('todoVenta').value = ''; $('todoObs').value = '';
+    $('todoErr').textContent = '';
+    $('todoModal').classList.remove('hide');
+  }
+
+  $('saveTodo').onclick = function(){
+    $('todoErr').textContent = '';
+    var assigneeId = $('todoAssignee').value;
+    if(!assigneeId){ $('todoErr').textContent = 'Selecciona un representante.'; return; }
+    var body = {
+      assigneeId: assigneeId,
+      cliente: $('todoCliente').value.trim(),
+      ubicacion: $('todoUbicacion').value.trim(),
+      producto: $('todoProducto').value.trim(),
+      trabajo: $('todoTrabajo').value.trim(),
+      ventaConcretar: $('todoVenta').value,
+      observaciones: $('todoObs').value.trim()
+    };
+    api('POST', '/api/todos', body).then(function(res){
+      if(res.ok){
+        $('todoModal').classList.add('hide');
+        loadTodos();
+      } else {
+        $('todoErr').textContent = res.data.error || 'No se pudo asignar';
+      }
+    });
+  };
+
+  // Hook: después de guardar una actividad, si había un ToDo pendiente, eliminarlo
+  var originalSaveBtn = $('saveBtn').onclick;
+  $('saveBtn').onclick = function(){
+    var body={
+      semana:$('iSemana').value.trim(), dia:$('iDia').value, ubicacion:$('iUbicacion').value.trim(),
+      cliente:$('iCliente').value.trim(), producto:$('iProducto').value.trim(), trabajo:$('iTrabajo').value.trim(),
+      ventaConcretar:$('iConcretar').value, estado:$('iEstado').value,
+      ventaRealizada:$('iRealizada').value, observaciones:$('iObs').value.trim(),
+      resultado:$('iResultado').value.trim()
+    };
+    if(me.role==='admin') body.ownerId=$('iRep').value;
+    var p = editingId ? api('PUT', apiUrl('/rows/'+editingId), body) : api('POST', apiUrl('/rows'), body);
+    p.then(function(res){
+      if(res.ok){
+        // Si había un ToDo pendiente, eliminarlo
+        if(pendingTodoId){
+          api('DELETE', '/api/todos/' + pendingTodoId).then(function(){
+            pendingTodoId = null;
+            loadTodos();
+          });
+        }
+        resetForm();
+        loadRows();
+      }
+      else alert(res.data.error||'No se pudo guardar');
+    });
+  };
 
 })();
 </script>

@@ -599,13 +599,110 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { ok: true });
     }
 
+    // ---- ToDo (tareas pre-asignadas por supervisor/admin) ----
+    // GET /api/todos → lista tareas ToDo visibles para el usuario
+    if (pathname === '/api/todos' && method === 'GET') {
+      const todosFile = path.join(DATA_DIR, 'data', 'todos.json');
+      let todos = [];
+      if (fs.existsSync(todosFile)) {
+        try { todos = JSON.parse(fs.readFileSync(todosFile, 'utf8')); } catch (e) { todos = []; }
+      }
+      if (!Array.isArray(todos)) todos = [];
+      // Visibilidad: admin ve todos; supervisor ve los suyos + los de su equipo; rep ve solo los suyos
+      const ids = idsVisiblesPara(me);
+      let visible;
+      if (ids === null) visible = todos;
+      else visible = todos.filter(t => ids.indexOf(t.assigneeId) >= 0);
+      // Adjuntar nombre del asignado y del creador
+      const result = visible.map(t => {
+        const u = globalDb.users.find(x => x.id === t.assigneeId);
+        const c = globalDb.users.find(x => x.id === t.createdBy);
+        return {
+          id: t.id, assigneeId: t.assigneeId, assigneeName: u ? u.name : '—',
+          createdBy: t.createdBy, createdByName: c ? c.name : '—',
+          cliente: t.cliente || '', producto: t.producto || '', trabajo: t.trabajo || '',
+          ubicacion: t.ubicacion || '', ventaConcretar: t.ventaConcretar || 0,
+          observaciones: t.observaciones || '', createdAt: t.createdAt
+        };
+      });
+      result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      return sendJSON(res, 200, { todos: result });
+    }
+
+    // POST /api/todos → crear tarea ToDo (solo admin/supervisor)
+    if (pathname === '/api/todos' && method === 'POST') {
+      if (me.role !== 'admin' && me.role !== 'supervisor') return sendJSON(res, 403, { error: 'Solo administrador o supervisor' });
+      const body = await readBody(req);
+      const assigneeId = body.assigneeId;
+      if (!assigneeId) return sendJSON(res, 400, { error: 'Falta el representante asignado' });
+      const target = globalDb.users.find(u => u.id === assigneeId);
+      if (!target) return sendJSON(res, 400, { error: 'Representante no encontrado' });
+      // Supervisor solo puede asignar a su equipo
+      const ids = idsVisiblesPara(me);
+      if (ids !== null && ids.indexOf(assigneeId) < 0) return sendJSON(res, 403, { error: 'No tienes permiso sobre ese representante' });
+
+      const todo = {
+        id: uid('todo'),
+        assigneeId,
+        createdBy: me.id,
+        cliente: (body.cliente || '').trim().slice(0, 200),
+        producto: (body.producto || '').trim().slice(0, 200),
+        trabajo: (body.trabajo || '').trim().slice(0, 500),
+        ubicacion: (body.ubicacion || '').trim().slice(0, 200),
+        ventaConcretar: Math.max(0, Number(body.ventaConcretar) || 0),
+        observaciones: (body.observaciones || '').trim().slice(0, 500),
+        createdAt: Date.now()
+      };
+      const todosFile = path.join(DATA_DIR, 'data', 'todos.json');
+      let todos = [];
+      if (fs.existsSync(todosFile)) {
+        try { todos = JSON.parse(fs.readFileSync(todosFile, 'utf8')); } catch (e) { todos = []; }
+      }
+      if (!Array.isArray(todos)) todos = [];
+      todos.push(todo);
+      fs.writeFileSync(todosFile, JSON.stringify(todos, null, 2));
+      return sendJSON(res, 201, { todo });
+    }
+
+    // DELETE /api/todos/:id → eliminar tarea ToDo (al convertirse en actividad o al borrarla)
+    const todoMatch = pathname.match(/^\/api\/todos\/([^/]+)$/);
+    if (todoMatch && method === 'DELETE') {
+      const todoId = todoMatch[1];
+      const todosFile = path.join(DATA_DIR, 'data', 'todos.json');
+      let todos = [];
+      if (fs.existsSync(todosFile)) {
+        try { todos = JSON.parse(fs.readFileSync(todosFile, 'utf8')); } catch (e) { todos = []; }
+      }
+      if (!Array.isArray(todos)) todos = [];
+      const todo = todos.find(t => t.id === todoId);
+      if (!todo) return sendJSON(res, 404, { error: 'ToDo no encontrado' });
+      // Permisos: admin puede borrar cualquiera; supervisor solo los de su equipo; rep solo si es suyo
+      if (me.role !== 'admin') {
+        const ids = idsVisiblesPara(me);
+        if (ids !== null && ids.indexOf(todo.assigneeId) < 0) return sendJSON(res, 403, { error: 'No tienes permiso sobre esta tarea' });
+      }
+      todos = todos.filter(t => t.id !== todoId);
+      fs.writeFileSync(todosFile, JSON.stringify(todos, null, 2));
+      return sendJSON(res, 200, { ok: true });
+    }
+
+    // ---- Fin ToDo ----
+
     // ---- Metas de venta (goals) ----
     // GET /api/goals?month=10&year=2026  → devuelve metas del mes para los visibles
+    // GET /api/goals?month=0&year=2026   → devuelve todas las metas del año (para pestaña TOTAL)
     if (pathname === '/api/goals' && method === 'GET') {
-      const month = parseInt(url.searchParams.get('month')) || (new Date().getMonth() + 1);
+      const rawMonth = url.searchParams.get('month');
+      const month = rawMonth !== null ? parseInt(rawMonth) : (new Date().getMonth() + 1);
       const year = parseInt(url.searchParams.get('year')) || new Date().getFullYear();
       const ids = idsVisiblesPara(me);
-      let goals = globalDb.goals.filter(g => g.month === month && g.year === year);
+      let goals;
+      if (month === 0) {
+        // Traer todas las metas del año
+        goals = globalDb.goals.filter(g => g.year === year);
+      } else {
+        goals = globalDb.goals.filter(g => g.month === month && g.year === year);
+      }
       if (ids !== null) goals = goals.filter(g => ids.indexOf(g.userId) >= 0);
       // Adjuntar nombre del usuario
       const result = goals.map(g => {
