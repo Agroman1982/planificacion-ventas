@@ -137,6 +137,13 @@
   .mtab.active{background:var(--bg);color:#fff;border-color:var(--bg)}
   .mtab.total{background:#FEF3C7;color:#92400E;border-color:#FCD34D}
   .mtab.total.active{background:#B45309;color:#fff;border-color:#B45309}
+  /* Responsables multiples (checkbox list) */
+  .resp-checks{border:1px solid var(--line);border-radius:10px;padding:6px;max-height:170px;overflow:auto;background:#fff}
+  .resp-checks label{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;color:var(--ink)}
+  .resp-checks label:hover{background:#F1F5F9}
+  .resp-checks input[type=checkbox]{width:16px;height:16px;margin:0;flex-shrink:0;accent-color:var(--brand)}
+  .resp-checks .resp-empty{font-size:12px;color:var(--muted);padding:6px 8px}
+  .resp-role{font-size:11px;color:var(--muted);font-weight:400}
   /* ToDo panel */
   .todo-panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px;box-shadow:var(--shadow)}
   .todo-panel h3{margin:0 0 10px;font-size:15px;font-weight:700}
@@ -223,8 +230,8 @@
 
     <!-- Tabs -->
     <div class="card" style="display:flex;gap:8px;align-items:center">
-      <button id="tabList" class="small">Lista</button>
-      <button id="tabCal" class="small ghost">Calendario</button>
+      <button id="tabCal" class="small">Calendario</button>
+      <button id="tabList" class="small ghost">Lista</button>
       <button id="tabRes" class="small ghost">Resumen</button>
     </div>
 
@@ -329,8 +336,8 @@
             <option value="admin">Administrador</option>
           </select>
         </div>
-        <div><label>Supervisor (solo para vendedores)</label>
-          <select id="nSup"><option value="">(sin supervisor)</option></select>
+        <div style="grid-column:1/-1"><label>Supervisores / responsables (selección múltiple)</label>
+          <div id="nSupChecks" class="resp-checks"></div>
         </div>
         <div><label>Contraseña temporal</label><input id="nPass" placeholder="••••••"></div>
       </div>
@@ -346,7 +353,7 @@
         <h2>Editar usuario</h2>
         <button class="ghost small" id="closeEditUser">Cerrar</button>
       </div>
-      <p class="muted" style="margin:0 0 10px">Modifica nombre, usuario, rol o supervisor. Para cambiar la contraseña, usa el botón "Clave" en la lista.</p>
+      <p class="muted" style="margin:0 0 10px">Modifica nombre, usuario, rol o supervisores. Puedes asignar varios responsables. Para cambiar la contraseña, usa el botón "Clave" en la lista.</p>
       <div class="grid">
         <div><label>Nombre completo</label><input id="eName" placeholder="Nombre"></div>
         <div><label>Usuario</label><input id="eUser" placeholder="usuario"></div>
@@ -359,8 +366,8 @@
             <option value="admin">Administrador</option>
           </select>
         </div>
-        <div><label>Supervisor (solo para vendedores)</label>
-          <select id="eSup"><option value="">(sin supervisor)</option></select>
+        <div style="grid-column:1/-1"><label>Supervisores / responsables (selección múltiple)</label>
+          <div id="eSupChecks" class="resp-checks"></div>
         </div>
       </div>
       <button id="saveEditUser" style="width:100%;margin-top:12px">Guardar cambios</button>
@@ -459,7 +466,7 @@
 (function(){
   var me=null, rows=[], ownerNames={}, estados=[], editingId=null, adminOwner='';
   var allUsers=[]; // caché de usuarios visibles (para poblar filtros y selectores)
-  var view='list', calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
+  var view='cal', calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
   var resMetric='Realizado';
   var PALETTE=['#1D4ED8','#15803D','#B45309','#6D28D9','#BE123C','#0F766E','#C2410C','#334155','#1E40AF','#166534'];
   var currentModule = 'ventas'; // Módulo activo por defecto
@@ -528,6 +535,8 @@
     $('app').classList.remove('hide');
     $('whoName').textContent=me.name;
     $('whoRole').textContent= ROLE_LABEL[me.role] || me.role;
+    // Calendario es la vista por defecto al ingresar
+    showCal();
     // estado selects
     fillSelect($('iEstado'), estados, 'Planificado');
     fillSelect($('fEstado'), estados, '');
@@ -1010,7 +1019,7 @@
   function renderRows(){
     var list=$('list'); list.innerHTML='';
     $('count').textContent='('+rows.length+')';
-    $('empty').classList.toggle('hide', rows.length>0);
+    $('empty').classList.toggle('hide', rows.length>0 || view!=='list');
     rows.forEach(function(r){ list.appendChild(actCard(r)); });
   }
 
@@ -1110,18 +1119,44 @@
   $('closeUsers').onclick=function(){ $('usersModal').classList.add('hide'); };
   $('usersModal').addEventListener('click',function(e){ if(e.target===$('usersModal')) $('usersModal').classList.add('hide'); });
 
-  // Llena el selector de "responsable" según el rol elegido:
-  //   promotor -> vendedores retail / KAM;   retail / kam -> supervisores;   resto -> vacío.
-  function fillResponsable(selId, role, selectedId){
+  // Pinta la lista de casillas de responsables según el rol elegido:
+  //   promotor -> vendedores retail / KAM;   retail / kam -> supervisores;   resto -> ninguno.
+  function escHtml(s){
+    return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function renderResponsableChecks(containerId, role, selectedIds){
     var permitidos = PADRE_VALIDO[role] || [];
     var cands = allUsers.filter(function(u){ return permitidos.indexOf(u.role) >= 0; });
-    fillSelect($(selId), cands.map(function(u){return u.id;}), '');
-    var first=$(selId).querySelector('option[value=""]'); if(first) first.textContent='(sin responsable)';
-    cands.forEach(function(u){ var o=$(selId).querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name+' ('+ROLE_LABEL[u.role]+')'; });
-    if(selectedId) $(selId).value=selectedId;
+    var box = $(containerId);
+    var sel = (selectedIds||[]).map(String);
+    if(!cands.length){
+      box.innerHTML = '<div class="resp-empty">Este rol no admite responsables. Deja la lista vacía.</div>';
+      return;
+    }
+    var html = '';
+    cands.forEach(function(u){
+      var checked = sel.indexOf(String(u.id)) >= 0 ? ' checked' : '';
+      html += '<label><input type="checkbox" value="' + escHtml(u.id) + '"' + checked + '> ' +
+              '<span>' + escHtml(u.name) + ' <span class="resp-role">(' + escHtml(ROLE_LABEL[u.role]||u.role) + ')</span></span></label>';
+    });
+    box.innerHTML = html;
   }
-  $('nRole').addEventListener('change', function(){ fillResponsable('nSup', $('nRole').value); });
-  $('eRole').addEventListener('change', function(){ fillResponsable('eSup', $('eRole').value); });
+  function getResponsableChecks(containerId){
+    return Array.prototype.slice.call($(containerId).querySelectorAll('input[type=checkbox]:checked'))
+      .map(function(i){ return i.value; });
+  }
+  function responsablesDe(u){
+    if(u.supervisorIds && u.supervisorIds.length) return u.supervisorIds;
+    return u.supervisorId ? [u.supervisorId] : [];
+  }
+  // Repinta conservando lo que ya estaba marcado
+  function refreshResponsableChecks(containerId, role){
+    renderResponsableChecks(containerId, role, getResponsableChecks(containerId));
+  }
+  $('nRole').addEventListener('change', function(){ renderResponsableChecks('nSupChecks', $('nRole').value); });
+  $('eRole').addEventListener('change', function(){ renderResponsableChecks('eSupChecks', $('eRole').value); });
 
   function loadUserOptions(){
     api('GET','/api/users').then(function(res){
@@ -1138,7 +1173,7 @@
       var fo=$('fOwner').querySelector('option[value=""]'); if(fo) fo.textContent='Todos';
       us.forEach(function(u){ var o=$('fOwner').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name+(u.id===me.id?' (yo)':''); });
       if(cur) $('fOwner').value=cur;
-      fillResponsable('nSup', $('nRole').value);
+      refreshResponsableChecks('nSupChecks', $('nRole').value);
     });
   }
   function loadUsers(){
@@ -1146,9 +1181,9 @@
       if(!res.ok) return;
       var t=$('usersTable'); t.innerHTML='';
       var us=res.data.users; allUsers=us;
-      fillResponsable('nSup', $('nRole').value);
+      refreshResponsableChecks('nSupChecks', $('nRole').value);
       var head=document.createElement('tr');
-      ['Nombre','Usuario','Rol','Responsable','Acciones'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
+      ['Nombre','Usuario','Rol','Responsables','Acciones'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
       t.appendChild(head);
       us.forEach(function(u){
         var tr=document.createElement('tr');
@@ -1156,7 +1191,10 @@
         tr.appendChild(td(u.username));
         tr.appendChild(td('<span class="pill">'+esc(ROLE_LABEL[u.role]||u.role)+'</span>'));
         var supName='—';
-        if(u.supervisorId){ var s=us.find(function(x){return x.id===u.supervisorId;}); if(s) supName=s.name; }
+        var supIds=responsablesDe(u);
+        if(supIds.length){
+          supName=supIds.map(function(id){ var s=us.find(function(x){return x.id===id;}); return s?escHtml(s.name):'—'; }).join(', ');
+        }
         tr.appendChild(td(supName));
         var acc=document.createElement('td');
         var ed=document.createElement('button'); ed.className='ghost small'; ed.textContent='Editar'; ed.onclick=function(){ openEditUser(u); };
@@ -1180,10 +1218,11 @@
     $('eUser').value=u.username||'';
     $('eRole').value=u.role||'retail';
     // Responsable según el rol (promotor -> vendedores/KAM; vendedor/KAM -> supervisores)
+    renderResponsableChecks('eSupChecks', u.role, responsablesDe(u));
     api('GET','/api/users').then(function(res){
       if(!res.ok) return;
       allUsers=res.data.users;
-      fillResponsable('eSup', u.role, u.supervisorId||'');
+      renderResponsableChecks('eSupChecks', u.role, responsablesDe(u));
     });
     $('eErr').textContent='';
     $('editUserModal').classList.remove('hide');
@@ -1198,7 +1237,7 @@
       name: $('eName').value.trim(),
       username: $('eUser').value.trim(),
       role: $('eRole').value,
-      supervisorId: $('eSup').value || null
+      supervisorIds: getResponsableChecks('eSupChecks')
     };
     if(!body.name){ $('eErr').textContent='El nombre es obligatorio.'; return; }
     if(!body.username){ $('eErr').textContent='El usuario es obligatorio.'; return; }
@@ -1214,7 +1253,7 @@
   }
   $('addUser').onclick=function(){
     $('uErr').textContent='';
-    api('POST','/api/users',{name:$('nName').value.trim(),username:$('nUser').value.trim(),role:$('nRole').value,supervisorId:$('nSup').value||null,password:$('nPass').value}).then(function(r){
+    api('POST','/api/users',{name:$('nName').value.trim(),username:$('nUser').value.trim(),role:$('nRole').value,supervisorIds:getResponsableChecks('nSupChecks'),password:$('nPass').value}).then(function(r){
       if(r.ok){ $('nName').value='';$('nUser').value='';$('nPass').value=''; loadUsers(); if(me.role==='admin') loadUserOptions(); }
       else $('uErr').textContent=r.data.error;
     });
@@ -1257,7 +1296,8 @@
     view='list';
     $('tabList').classList.remove('ghost'); $('tabCal').classList.add('ghost'); $('tabRes').classList.add('ghost');
     $('formCard').classList.remove('hide'); $('listHead').classList.remove('hide');
-    $('list').classList.remove('hide'); $('empty').classList.remove('hide');
+    $('list').classList.remove('hide');
+    $('empty').classList.toggle('hide', rows.length>0);
     $('calView').classList.add('hide'); $('resView').classList.add('hide');
   }
   function showCal(){

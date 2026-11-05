@@ -114,7 +114,7 @@ function seed() {
   const mk = (name, username, role, password) => {
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-    return { id: uid('u'), name, username, role, supervisorId: null, salt, hash, createdAt: Date.now() };
+    return { id: uid('u'), name, username, role, supervisorId: null, supervisorIds: [], salt, hash, createdAt: Date.now() };
   };
   globalDb.users.push(mk('Hector Espinoza', 'hector', 'admin', 'rainbow2026'));
   globalDb.users.push(mk('Marco Herrera', 'marco', 'retail', 'ventas2026'));
@@ -134,7 +134,18 @@ function migrate() {
     if (u.role === 'rep') { u.role = 'retail'; changed = true; }
     if (!ROLES.includes(u.role)) { u.role = 'retail'; changed = true; }
     if (u.supervisorId === undefined) { u.supervisorId = null; changed = true; }
-    if (u.role !== 'retail' && u.role !== 'kam' && u.supervisorId) { u.supervisorId = null; changed = true; }
+    // Migración a selección múltiple de responsables (sin perder el valor anterior)
+    if (!Array.isArray(u.supervisorIds)) {
+      u.supervisorIds = u.supervisorId ? [u.supervisorId] : [];
+      changed = true;
+    }
+    // Solo los roles que admiten responsable pueden tenerlo (promotor también)
+    if (!ROLES_CON_SUPERVISOR.includes(u.role) && (u.supervisorIds.length || u.supervisorId)) {
+      u.supervisorIds = []; u.supervisorId = null; changed = true;
+    }
+    // Mantener supervisorId (compatibilidad) sincronizado con el arreglo
+    const primero = u.supervisorIds[0] || null;
+    if (u.supervisorId !== primero) { u.supervisorId = primero; changed = true; }
   });
   if (changed) saveGlobalData();
 }
@@ -194,12 +205,20 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
-function publicUser(u) { return { id: u.id, name: u.name, username: u.username, role: u.role, supervisorId: u.supervisorId || null }; }
+function publicUser(u) {
+  const ids = Array.isArray(u.supervisorIds) ? u.supervisorIds.slice() : (u.supervisorId ? [u.supervisorId] : []);
+  return { id: u.id, name: u.name, username: u.username, role: u.role, supervisorIds: ids, supervisorId: ids[0] || null };
+}
 
 // ---------------- Visibilidad ----------------
+// Un usuario puede tener varios responsables; cualquiera de ellos lo ve en su equipo.
+function esResponsableDe(u, responsableId) {
+  if (Array.isArray(u.supervisorIds) && u.supervisorIds.indexOf(responsableId) >= 0) return true;
+  return u.supervisorId === responsableId;
+}
 function idsVisiblesPara(me) {
   if (me.role === 'admin') return null;
-  const equipo = globalDb.users.filter(u => u.supervisorId === me.id).map(u => u.id);
+  const equipo = globalDb.users.filter(u => esResponsableDe(u, me.id)).map(u => u.id);
   equipo.push(me.id);
   return equipo;
 }
@@ -207,13 +226,19 @@ function puedeVerFila(me, row) {
   const ids = idsVisiblesPara(me);
   return ids === null || ids.indexOf(row.ownerId) >= 0;
 }
-function validarResponsable(role, responsableId) {
-  if (!ROLES_CON_SUPERVISOR.includes(role)) return null;
-  if (!responsableId) return null;
+// Acepta un id, un arreglo de ids, null o vacío. Devuelve un arreglo validado o 'INVALIDO'.
+function validarResponsable(role, entrada) {
+  if (!ROLES_CON_SUPERVISOR.includes(role)) return [];
+  const lista = Array.isArray(entrada) ? entrada : (entrada ? [entrada] : []);
   const permitidos = PADRE_VALIDO[role] || [];
-  const padre = globalDb.users.find(u => u.id === responsableId && permitidos.includes(u.role));
-  if (!padre) return 'INVALIDO';
-  return padre.id;
+  const out = [];
+  for (const rid of lista) {
+    if (!rid) continue;
+    const padre = globalDb.users.find(u => u.id === rid && permitidos.includes(u.role));
+    if (!padre) return 'INVALIDO';
+    if (out.indexOf(padre.id) < 0) out.push(padre.id);
+  }
+  return out;
 }
 function puedeTocarFila(me, row) {
   if (me.role === 'admin') return true;
@@ -760,15 +785,16 @@ const server = http.createServer(async (req, res) => {
       if (!name || !username || !password) return sendJSON(res, 400, { error: 'Nombre, usuario y contraseña son obligatorios' });
       if (globalDb.users.find(u => u.username === username)) return sendJSON(res, 400, { error: 'Ese nombre de usuario ya existe' });
       
-      const supervisorId = validarResponsable(role, body.supervisorId);
-      if (supervisorId === 'INVALIDO') {
+      const entradaResp = (body.supervisorIds !== undefined) ? body.supervisorIds : body.supervisorId;
+      const supervisorIds = validarResponsable(role, entradaResp);
+      if (supervisorIds === 'INVALIDO') {
         const espera = (PADRE_VALIDO[role] || []).join(' / ');
         return sendJSON(res, 400, { error: 'Responsable no válido. Para ese rol debe ser: ' + espera });
       }
       
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-      const user = { id: uid('u'), name, username, role, supervisorId, salt, hash, createdAt: Date.now() };
+      const user = { id: uid('u'), name, username, role, supervisorIds, supervisorId: supervisorIds[0] || null, salt, hash, createdAt: Date.now() };
       globalDb.users.push(user);
       saveSoon();
       return sendJSON(res, 201, { user: publicUser(user) });
@@ -805,18 +831,29 @@ const server = http.createServer(async (req, res) => {
       const rolAnterior = user.role;
       if (ROLES.includes(body.role)) user.role = body.role;
       if (rolAnterior !== user.role) {
+        // Si cambió de rol, deja de ser responsable de quienes ya no pueden tenerlo
         globalDb.users.forEach(function (u) {
-          if (u.supervisorId === user.id) {
-            const permitidos = PADRE_VALIDO[u.role] || [];
-            if (!permitidos.includes(user.role)) u.supervisorId = null;
+          const permitidos = PADRE_VALIDO[u.role] || [];
+          if (!permitidos.includes(user.role) && esResponsableDe(u, user.id)) {
+            u.supervisorIds = (u.supervisorIds || []).filter(id => id !== user.id);
+            u.supervisorId = u.supervisorIds[0] || null;
           }
         });
+        // Y si su nuevo rol no admite responsables, limpiar los propios
+        if (!ROLES_CON_SUPERVISOR.includes(user.role)) {
+          user.supervisorIds = []; user.supervisorId = null;
+        }
       }
-      if (body.supervisorId !== undefined) {
-        const v = validarResponsable(user.role, body.supervisorId);
+      // Acepta supervisorIds (arreglo) o supervisorId (valor único, compatibilidad)
+      const entradaResp = (body.supervisorIds !== undefined) ? body.supervisorIds : body.supervisorId;
+      if (entradaResp !== undefined) {
+        const v = validarResponsable(user.role, entradaResp);
         if (v === 'INVALIDO') return sendJSON(res, 400, { error: 'Responsable no válido para ese rol' });
-        user.supervisorId = v;
+        user.supervisorIds = v;
+        user.supervisorId = v[0] || null;
       }
+      // Asegurar que siempre exista el arreglo
+      if (!Array.isArray(user.supervisorIds)) user.supervisorIds = user.supervisorId ? [user.supervisorId] : [];
       if (typeof body.password === 'string' && body.password) {
         user.salt = crypto.randomBytes(16).toString('hex');
         user.hash = crypto.scryptSync(body.password, user.salt, 64).toString('hex');
