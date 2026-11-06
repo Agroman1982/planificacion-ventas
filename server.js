@@ -222,6 +222,19 @@ function idsVisiblesPara(me) {
   equipo.push(me.id);
   return equipo;
 }
+// "Jefe de equipo": admin, supervisor, o cualquier usuario con subordinados a cargo
+// (por ejemplo un vendedor retail/KAM que tiene promotores). El alcance exacto de
+// a quién puede gestionar SIEMPRE lo define idsVisiblesPara().
+function puedeGestionarEquipo(me) {
+  if (me.role === 'admin' || me.role === 'supervisor') return true;
+  if (me.role !== 'retail' && me.role !== 'kam') return false;
+  return globalDb.users.some(u => u.id !== me.id && esResponsableDe(u, me.id));
+}
+function puedeGestionarA(me, targetId) {
+  if (!puedeGestionarEquipo(me)) return false;
+  const ids = idsVisiblesPara(me);
+  return ids === null || ids.indexOf(targetId) >= 0;
+}
 function puedeVerFila(me, row) {
   const ids = idsVisiblesPara(me);
   return ids === null || ids.indexOf(row.ownerId) >= 0;
@@ -360,7 +373,13 @@ const server = http.createServer(async (req, res) => {
       const filterIds = ids !== null ? ids : null;
       teamGoals = globalDb.goals.filter(g => g.month === curMonth && g.year === curYear && (filterIds === null || filterIds.indexOf(g.userId) >= 0))
         .map(g => { const u = globalDb.users.find(x => x.id === g.userId); return { userId: g.userId, userName: u ? u.name : '—', amount: g.amount }; });
-      return sendJSON(res, 200, { user: publicUser(user), currentGoal: myGoal ? { amount: myGoal.amount, month: curMonth, year: curYear } : null, teamGoals: teamGoals });
+      return sendJSON(res, 200, {
+        user: publicUser(user),
+        estados: ESTADOS,
+        canManageTeam: puedeGestionarEquipo(user),
+        currentGoal: myGoal ? { amount: myGoal.amount, month: curMonth, year: curYear } : null,
+        teamGoals: teamGoals
+      });
     }
 
     if (pathname === '/api/logout' && method === 'POST') {
@@ -397,6 +416,7 @@ const server = http.createServer(async (req, res) => {
           .map(m => ({ id: m.id, name: m.name, icon: m.icon, description: m.description })),
         currentGoal: myGoal ? { amount: myGoal.amount, month: curMonth, year: curYear } : null,
         teamGoals: teamGoals,
+        canManageTeam: puedeGestionarEquipo(me),
         currentMonth: curMonth,
         currentYear: curYear
       });
@@ -472,7 +492,10 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       
       let ownerId = me.id;
-      if (me.role === 'admin' && body.ownerId) {
+      // Un jefe de equipo (admin, supervisor o vendedor con promotores a cargo)
+      // puede agendar la actividad a nombre de alguien de su propio equipo.
+      if (body.ownerId && body.ownerId !== me.id && puedeGestionarEquipo(me)) {
+        if (!puedeGestionarA(me, body.ownerId)) return sendJSON(res, 403, { error: 'No tienes permiso sobre ese representante' });
         const owner = globalDb.users.find(u => u.id === body.ownerId && (u.role === 'retail' || u.role === 'kam' || u.role === 'promotor'));
         if (!owner) return sendJSON(res, 400, { error: 'Vendedor no válido' });
         ownerId = owner.id;
@@ -654,15 +677,17 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { todos: result });
     }
 
-    // POST /api/todos → crear tarea ToDo (solo admin/supervisor)
+    // POST /api/todos → crear tarea ToDo (jefes de equipo, solo para su gente)
     if (pathname === '/api/todos' && method === 'POST') {
-      if (me.role !== 'admin' && me.role !== 'supervisor') return sendJSON(res, 403, { error: 'Solo administrador o supervisor' });
+      if (!puedeGestionarEquipo(me)) return sendJSON(res, 403, { error: 'No tienes permiso para asignar tareas' });
       const body = await readBody(req);
       const assigneeId = body.assigneeId;
       if (!assigneeId) return sendJSON(res, 400, { error: 'Falta el representante asignado' });
       const target = globalDb.users.find(u => u.id === assigneeId);
       if (!target) return sendJSON(res, 400, { error: 'Representante no encontrado' });
-      // Supervisor solo puede asignar a su equipo
+      // Un jefe de equipo asigna tareas a sus subordinados, nunca a sí mismo
+      if (me.role !== 'admin' && assigneeId === me.id) return sendJSON(res, 403, { error: 'Solo puedes asignar tareas a tus subordinados' });
+      // El jefe solo puede asignar a su propio equipo
       const ids = idsVisiblesPara(me);
       if (ids !== null && ids.indexOf(assigneeId) < 0) return sendJSON(res, 403, { error: 'No tienes permiso sobre ese representante' });
 
@@ -739,7 +764,7 @@ const server = http.createServer(async (req, res) => {
 
     // POST /api/goals → crear o actualizar meta (upsert)
     if (pathname === '/api/goals' && method === 'POST') {
-      if (me.role !== 'admin' && me.role !== 'supervisor') return sendJSON(res, 403, { error: 'Solo administrador o supervisor' });
+      if (!puedeGestionarEquipo(me)) return sendJSON(res, 403, { error: 'No tienes permiso para asignar metas' });
       const body = await readBody(req);
       const userId = body.userId;
       const month = parseInt(body.month) || (new Date().getMonth() + 1);
@@ -749,7 +774,9 @@ const server = http.createServer(async (req, res) => {
       if (!userId) return sendJSON(res, 400, { error: 'Falta el vendedor' });
       const target = globalDb.users.find(u => u.id === userId);
       if (!target) return sendJSON(res, 400, { error: 'Vendedor no encontrado' });
-      // Supervisor solo puede setear metas para su equipo
+      // Nadie (salvo el admin) se fija su propia meta: solo se asignan a subordinados
+      if (me.role !== 'admin' && userId === me.id) return sendJSON(res, 403, { error: 'Solo puedes asignar metas a tus subordinados' });
+      // El jefe solo puede setear metas para su propio equipo
       const ids = idsVisiblesPara(me);
       if (ids !== null && ids.indexOf(userId) < 0) return sendJSON(res, 403, { error: 'No tienes permiso sobre ese vendedor' });
 
