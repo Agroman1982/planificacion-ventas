@@ -139,11 +139,11 @@
       }
     },
     "permissions": {
-      "create": ["admin", "supervisor", "retail", "kam", "promotor"],
-      "edit": ["owner", "admin", "supervisor"],
+      "create": ["admin", "supervisor", "coordinador", "retail", "kam", "promotor"],
+      "edit": ["owner", "admin", "supervisor", "coordinador"],
       "delete": ["owner", "admin"],
       "viewAll": ["admin"],
-      "viewTeam": ["supervisor", "retail", "kam"]
+      "viewTeam": ["supervisor", "coordinador", "retail", "kam"]
     },
     "features": {
       "quickStatusChange": true,

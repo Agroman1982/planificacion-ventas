@@ -332,6 +332,7 @@
             <option value="retail">Vendedor Retail</option>
             <option value="kam">KAM (vendedor Agroindustria)</option>
             <option value="promotor">Promotor</option>
+            <option value="coordinador">Coordinador</option>
             <option value="supervisor">Supervisor</option>
             <option value="admin">Administrador</option>
           </select>
@@ -362,6 +363,7 @@
             <option value="retail">Vendedor Retail</option>
             <option value="kam">KAM (vendedor Agroindustria)</option>
             <option value="promotor">Promotor</option>
+            <option value="coordinador">Coordinador</option>
             <option value="supervisor">Supervisor</option>
             <option value="admin">Administrador</option>
           </select>
@@ -523,22 +525,28 @@
     });
   }
 
-  // Etiquetas de rol y helper: quién ve a varios vendedores (admin y supervisor)
-  var ROLE_LABEL = {admin:'Administrador', supervisor:'Supervisor', retail:'Vendedor Retail', kam:'KAM (Agroindustria)', promotor:'Promotor'};
+  // Etiquetas de rol y jerarquía (espejo de las constantes del servidor)
+  var ROLE_LABEL = {admin:'Administrador', supervisor:'Supervisor', coordinador:'Coordinador', retail:'Vendedor Retail', kam:'KAM (Agroindustria)', promotor:'Promotor'};
   // Qué rol puede ser responsable de cada rol (espejo de PADRE_VALIDO en el server)
-  var PADRE_VALIDO = {retail:['supervisor'], kam:['supervisor'], promotor:['retail','kam']};
-  // ¿Ve a más de una persona? admin, supervisor, y retail/kam que tengan promotores a cargo.
+  var PADRE_VALIDO = {
+    coordinador:['supervisor'],
+    retail:['supervisor','coordinador'],
+    kam:['supervisor','coordinador'],
+    promotor:['retail','kam','coordinador']
+  };
+  // Roles a los que un jefe puede asignar metas, ToDo o actividades.
+  var ROLES_EQUIPO = ['coordinador','retail','kam','promotor'];
   // canManageTeam viene calculado del servidor; tieneEquipo se confirma al cargar /api/users.
   var tieneEquipo = false;
   var canManageTeam = false;
-  // "Jefe de equipo": puede asignar metas, ToDo y agendar a nombre de su gente.
-  // El servidor valida el alcance real en cada endpoint (idsVisiblesPara).
-  function jefeDeEquipo(){ return !!(me && (me.role==='admin' || me.role==='supervisor' || canManageTeam || tieneEquipo)); }
+  // "Jefe de equipo": admin, supervisor y coordinador por rol; o retail/KAM con
+  // gente a cargo. El servidor valida el alcance real en cada endpoint.
+  function jefeDeEquipo(){ return !!(me && (me.role==='admin' || me.role==='supervisor' || me.role==='coordinador' || canManageTeam || tieneEquipo)); }
   function veVarios(){ return jefeDeEquipo(); }
 
   // Puebla el selector "Representante" solo con gente del propio equipo (o todos, si es admin).
   function llenarSelectRep(preferido){
-    var reps = allUsers.filter(function(u){ return ['retail','kam','promotor'].indexOf(u.role) >= 0; });
+    var reps = allUsers.filter(function(u){ return ROLES_EQUIPO.indexOf(u.role) >= 0; });
     fillSelect($('iRep'), reps.map(function(u){ return u.id; }));
     reps.forEach(function(u){
       var o=$('iRep').querySelector('option[value="'+u.id+'"]');
@@ -652,7 +660,8 @@
   function pintarBanner(){
     var t;
     if(me.role==='admin') t='<b>Modo administrador</b> — ves la programación de <b>todos</b> los vendedores. Usa el filtro para ver uno solo.';
-    else if(me.role==='supervisor') t='<b>Modo supervisor</b> — ves la programación de <b>tu equipo</b> (los vendedores que tienes a cargo).';
+    else if(me.role==='supervisor') t='<b>Modo supervisor</b> — ves la programación de <b>tu equipo</b> (coordinadores, vendedores y promotores a tu cargo).';
+    else if(me.role==='coordinador') t='<b>Modo coordinador</b> — reportas a tu supervisor y gestionas <b>tu equipo</b>: metas, ToDo y programación de vendedores y promotores a tu cargo.';
     else if(me.role==='promotor') t='Estás viendo <b>tu programación semanal</b>.';
     else if(tieneEquipo) t='<b>Modo jefe de equipo</b> — ves y gestionas <b>tus actividades</b> y las de <b>tus promotores</b>: metas, ToDo y programación. Usa el filtro para ver uno solo.';
     else t='Estás viendo <b>tu programación semanal</b>. Nadie más puede ver estas actividades.';
@@ -882,10 +891,10 @@
   function renderGoalsTable(month, year){
     var t = $('goalsTable'); t.innerHTML='';
     var head = document.createElement('tr');
-    ['Vendedor','Meta (US$)','Acción'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
+    ['Integrante del equipo','Meta (US$)','Acción'].forEach(function(h){ var th=document.createElement('th'); th.textContent=h; head.appendChild(th); });
     t.appendChild(head);
     // Subordinados visibles: nadie se asigna su propia meta.
-    var reps = allUsers.filter(function(u){ return u.id !== me.id && ['retail','kam','promotor'].indexOf(u.role) >= 0; });
+    var reps = allUsers.filter(function(u){ return u.id !== me.id && ROLES_EQUIPO.indexOf(u.role) >= 0; });
     reps.forEach(function(u){
       var tr = document.createElement('tr');
       var td1 = document.createElement('td'); td1.textContent = u.name + ' (' + (ROLE_LABEL[u.role]||u.role) + ')';
@@ -1143,7 +1152,8 @@
   $('usersModal').addEventListener('click',function(e){ if(e.target===$('usersModal')) $('usersModal').classList.add('hide'); });
 
   // Pinta la lista de casillas de responsables según el rol elegido:
-  //   promotor -> vendedores retail / KAM;   retail / kam -> supervisores;   resto -> ninguno.
+  //   coordinador -> supervisores;   retail / KAM -> supervisores o coordinadores;
+  //   promotor -> vendedores retail / KAM o coordinadores;   resto -> ninguno.
   function escHtml(s){
     return String(s==null?'':s).replace(/[&<>"']/g,function(c){
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -1185,7 +1195,7 @@
     api('GET','/api/users').then(function(res){
       if(!res.ok) return;
       var us=res.data.users; allUsers=us;
-      var reps=us.filter(function(u){return u.role==='retail'||u.role==='kam'||u.role==='promotor';});
+      var reps=us.filter(function(u){return ROLES_EQUIPO.indexOf(u.role)>=0;});
       fillSelect($('iRep'), reps.map(function(u){return u.id;}), '');
       reps.forEach(function(u){ var o=$('iRep').querySelector('option[value="'+u.id+'"]'); if(o)o.textContent=u.name+' ('+ROLE_LABEL[u.role]+')'; });
       if(!adminOwner && reps[0]) adminOwner=reps[0].id;
@@ -1725,7 +1735,7 @@
 
   function openTodoModal(){
     // Llenar select de subordinados (un jefe no se asigna ToDo a sí mismo)
-    var reps = allUsers.filter(function(u){ return u.id !== me.id && ['retail','kam','promotor'].indexOf(u.role) >= 0; });
+    var reps = allUsers.filter(function(u){ return u.id !== me.id && ROLES_EQUIPO.indexOf(u.role) >= 0; });
     var sel = $('todoAssignee');
     sel.innerHTML = '';
     reps.forEach(function(u){

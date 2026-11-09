@@ -10,7 +10,7 @@
       "createdAt": 1729443600000,
       "updatedAt": 1729443600000,
       "dataPath": "modules/ventas/data",
-      "allowedRoles": ["admin", "supervisor", "retail", "kam", "promotor"],
+      "allowedRoles": ["admin", "supervisor", "coordinador", "retail", "kam", "promotor"],
       "defaultView": "lista"
     },
     {

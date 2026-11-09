@@ -18,13 +18,18 @@ const SESSION_COOKIE = 'sid';
 const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
 
 const ESTADOS = ['Planificado', 'En curso', 'Realizado', 'No realizado'];
-const ROLES = ['admin', 'supervisor', 'retail', 'kam', 'promotor'];
-const ROLES_LABEL = { admin: 'Administrador', supervisor: 'Supervisor', retail: 'Vendedor Retail', kam: 'KAM (Agroindustria)', promotor: 'Promotor' };
-const ROLES_CON_SUPERVISOR = ['retail', 'kam', 'promotor'];
+const ROLES = ['admin', 'supervisor', 'coordinador', 'retail', 'kam', 'promotor'];
+const ROLES_LABEL = { admin: 'Administrador', supervisor: 'Supervisor', coordinador: 'Coordinador', retail: 'Vendedor Retail', kam: 'KAM (Agroindustria)', promotor: 'Promotor' };
+const ROLES_CON_SUPERVISOR = ['coordinador', 'retail', 'kam', 'promotor'];
+// Roles a los que se les puede asignar una meta, un ToDo o una actividad.
+const ROLES_DE_EQUIPO = ['coordinador', 'retail', 'kam', 'promotor'];
+// Quién puede ser responsable de cada rol. Un coordinador reporta al supervisor
+// y puede tener a su cargo vendedores (retail/KAM) y promotores.
 const PADRE_VALIDO = {
-  retail: ['supervisor'],
-  kam: ['supervisor'],
-  promotor: ['retail', 'kam'],
+  coordinador: ['supervisor'],
+  retail: ['supervisor', 'coordinador'],
+  kam: ['supervisor', 'coordinador'],
+  promotor: ['retail', 'kam', 'coordinador'],
 };
 
 // ---------------- Capa de datos global ----------------
@@ -216,17 +221,32 @@ function esResponsableDe(u, responsableId) {
   if (Array.isArray(u.supervisorIds) && u.supervisorIds.indexOf(responsableId) >= 0) return true;
   return u.supervisorId === responsableId;
 }
+// Visibilidad transitiva: además de los reportes directos, incluye a toda la
+// cadena que depende de ellos (supervisor -> coordinador -> vendedor -> promotor).
+// El conjunto "vistos" evita bucles cuando hay responsables múltiples.
 function idsVisiblesPara(me) {
   if (me.role === 'admin') return null;
-  const equipo = globalDb.users.filter(u => esResponsableDe(u, me.id)).map(u => u.id);
-  equipo.push(me.id);
+  const equipo = [me.id];
+  const vistos = new Set(equipo);
+  const cola = [me.id];
+  while (cola.length) {
+    const actual = cola.shift();
+    globalDb.users.forEach(u => {
+      if (vistos.has(u.id)) return;
+      if (esResponsableDe(u, actual)) {
+        vistos.add(u.id);
+        equipo.push(u.id);
+        cola.push(u.id);
+      }
+    });
+  }
   return equipo;
 }
-// "Jefe de equipo": admin, supervisor, o cualquier usuario con subordinados a cargo
-// (por ejemplo un vendedor retail/KAM que tiene promotores). El alcance exacto de
-// a quién puede gestionar SIEMPRE lo define idsVisiblesPara().
+// "Jefe de equipo": admin, supervisor y coordinador por rol; o cualquier
+// retail/KAM que tenga subordinados a cargo. El alcance exacto de a quién
+// puede gestionar SIEMPRE lo define idsVisiblesPara().
 function puedeGestionarEquipo(me) {
-  if (me.role === 'admin' || me.role === 'supervisor') return true;
+  if (me.role === 'admin' || me.role === 'supervisor' || me.role === 'coordinador') return true;
   if (me.role !== 'retail' && me.role !== 'kam') return false;
   return globalDb.users.some(u => u.id !== me.id && esResponsableDe(u, me.id));
 }
@@ -492,11 +512,11 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       
       let ownerId = me.id;
-      // Un jefe de equipo (admin, supervisor o vendedor con promotores a cargo)
+      // Un jefe de equipo (admin, supervisor, coordinador o vendedor con gente a cargo)
       // puede agendar la actividad a nombre de alguien de su propio equipo.
       if (body.ownerId && body.ownerId !== me.id && puedeGestionarEquipo(me)) {
         if (!puedeGestionarA(me, body.ownerId)) return sendJSON(res, 403, { error: 'No tienes permiso sobre ese representante' });
-        const owner = globalDb.users.find(u => u.id === body.ownerId && (u.role === 'retail' || u.role === 'kam' || u.role === 'promotor'));
+        const owner = globalDb.users.find(u => u.id === body.ownerId && ROLES_DE_EQUIPO.includes(u.role));
         if (!owner) return sendJSON(res, 400, { error: 'Vendedor no válido' });
         ownerId = owner.id;
       }
