@@ -82,6 +82,12 @@ function saveSoon() {
 // (clientes-base.json) para que un despliegue nuevo ya la tenga; las altas/bajas
 // del administrador se guardan aparte en DATA_DIR/data/clients.json como
 // "extra" y "removed", de modo que nunca se pisa la base al editar.
+// Mantenimiento del listado: admin y supervisores. En producción el responsable
+// de Rainbow usa el rol "supervisor", por eso no se limita solo a admin.
+function puedeEditarClientes(u) {
+  return !!u && (u.role === 'admin' || u.role === 'supervisor');
+}
+
 function normalizarCliente(s) {
   return String(s == null ? '' : s)
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -787,7 +793,7 @@ const server = http.createServer(async (req, res) => {
         shared: cat.clientes,   // compatibilidad con versiones anteriores del front
         byUser: {},
         ownUsername: me.username,
-        editable: me.role === 'admin',
+        editable: puedeEditarClientes(me),
         users: globalDb.users
           .filter(u => ids === null || ids.indexOf(u.id) >= 0)
           .map(u => ({ id: u.id, name: u.name, username: u.username, role: u.role })),
@@ -797,10 +803,10 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // PUT: reemplaza el listado maestro (solo administrador). Se guardan las
+    // PUT: reemplaza el listado maestro (admin y supervisores). Se guardan las
     // diferencias contra la base versionada; la base en sí nunca se modifica.
     if (pathname === '/api/clients' && method === 'PUT') {
-      if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Solo el administrador puede editar el listado de clientes' });
+      if (!puedeEditarClientes(me)) return sendJSON(res, 403, { error: 'Solo el administrador o el supervisor pueden editar el listado de clientes' });
       const body = await readBody(req);
       let lista;
       if (Array.isArray(body.clientes)) lista = body.clientes;

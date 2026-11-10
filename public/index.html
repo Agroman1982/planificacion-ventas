@@ -919,7 +919,9 @@
     // estado selects
     fillSelect($('iEstado'), estados, 'Planificado');
     fillSelect($('fEstado'), estados, '');
-    if(me.role==='admin'){ $('usersBtn').classList.remove('hide'); $('clientsBtn').classList.remove('hide'); }
+    if(me.role==='admin') $('usersBtn').classList.remove('hide');
+    // El listado maestro lo mantienen admin y supervisores (todos lo consultan).
+    if(me.role==='admin' || me.role==='supervisor') $('clientsBtn').classList.remove('hide');
     aplicarPermisos();
     // Consultar usuarios visibles: sirve para el filtro y para saber si tiene gente a cargo
     api('GET','/api/users').then(function(res){
