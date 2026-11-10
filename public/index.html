@@ -46,6 +46,18 @@
   .b-curso{background:#B45309;color:#fff}
   .b-ok{background:#15803D;color:#fff}
   .b-no{background:#B91C1C;color:#fff}
+  .b-pot{background:#FEF3C7;color:#92400E}
+  .ac-wrap{position:relative}
+  .ac-menu{position:absolute;z-index:90;left:0;right:0;top:calc(100% + 4px);max-height:230px;overflow-y:auto;
+    background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.18)}
+  .ac-item{padding:9px 11px;font-size:14px;cursor:pointer;border-bottom:1px solid #EEF2F6}
+  .ac-item:last-child{border-bottom:none}
+  .ac-item:hover,.ac-item.on{background:#E8F3EE}
+  .ac-empty{padding:9px 11px;font-size:13px;color:var(--muted)}
+  .ac-hint{font-size:12px;margin-top:5px;font-weight:600;color:var(--warn)}
+  .ac-hint.info{color:var(--muted);font-weight:400}
+  .cat-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:7px 0;
+    border-bottom:1px solid var(--line);font-size:13px}
   .muted{color:var(--muted)}
   .right{text-align:right}
   .center{text-align:center}
@@ -188,6 +200,7 @@
         <button class="ghost small hide" id="csvBtn">Exportar a Excel</button>
         <button class="ghost small hide" id="goalsBtn">Metas</button>
         <button class="ghost small hide" id="todoBtn">Asignar ToDo</button>
+        <button class="ghost small hide" id="clientsBtn">Clientes</button>
         <button class="ghost small hide" id="usersBtn">Gestionar vendedores</button>
         <button class="ghost small" id="logoutBtn">Salir</button>
       </div>
@@ -256,7 +269,11 @@
         </div>
         <div>
           <label>Cliente</label>
-          <input id="iCliente" placeholder="Nombre del cliente">
+          <div class="ac-wrap">
+            <input id="iCliente" autocomplete="off" placeholder="Escriba para buscar en su cartera…">
+            <div id="clienteMenu" class="ac-menu hide"></div>
+          </div>
+          <div id="clienteHint" class="ac-hint hide"></div>
         </div>
         <div>
           <label>Producto a promocionar</label>
@@ -419,6 +436,30 @@
     </div>
   </div>
 
+  <!-- Modal Cartera de clientes -->
+  <div id="clientsModal" class="overlay hide">
+    <div class="modal" style="max-width:640px">
+      <div class="row-toolbar">
+        <h2>Cartera de clientes</h2>
+        <button class="ghost small" id="closeClients">Cerrar</button>
+      </div>
+      <p class="muted" style="margin:0 0 12px">Pegue <b>un cliente por línea</b> (puede copiar directamente una columna de Excel). Cada representante verá solo su cartera al escribir en el formulario; si el cliente no está en la lista, la actividad se guardará como <b>cliente potencial</b>.</p>
+      <label>Representante</label>
+      <select id="catUser"></select>
+      <div id="catCount" class="muted" style="font-size:12px;margin:6px 0">—</div>
+      <label style="margin-top:8px">Clientes de este representante (uno por línea)</label>
+      <textarea id="catLista" rows="9" placeholder="Agro Marino&#10;Agro Sol&#10;Agro Tropical"></textarea>
+      <label style="margin-top:12px">Clientes compartidos (visibles para todos)</label>
+      <textarea id="catShared" rows="3" placeholder="Opcional: uno por línea"></textarea>
+      <button id="saveCat" style="width:100%;margin-top:12px">Guardar cartera</button>
+      <div id="catErr" class="err"></div>
+      <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+      <h2 style="font-size:14px">Clientes potenciales detectados</h2>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">Nombres escritos que no estaban en la cartera, según las actividades cargadas con los filtros actuales. Con un clic los incorpora a la cartera de su representante.</p>
+      <div id="catPotenciales" class="muted" style="font-size:13px">—</div>
+    </div>
+  </div>
+
   <!-- Modal ToDo: asignar tarea al representante -->
   <div id="todoModal" class="overlay hide">
     <div class="modal">
@@ -434,7 +475,11 @@
         </div>
         <div>
           <label>Cliente</label>
-          <input id="todoCliente" placeholder="Nombre del cliente">
+          <div class="ac-wrap">
+            <input id="todoCliente" autocomplete="off" placeholder="Escriba para buscar en la cartera…">
+            <div id="todoClienteMenu" class="ac-menu hide"></div>
+          </div>
+          <div id="todoClienteHint" class="ac-hint hide"></div>
         </div>
         <div>
           <label>Ubicación</label>
@@ -499,6 +544,208 @@
     var c='b-plan'; if(e==='En curso')c='b-curso'; else if(e==='Realizado')c='b-ok'; else if(e==='No realizado')c='b-no';
     return '<span class="badge '+c+'">'+esc(e)+'</span>';
   }
+
+  // ==================== Cartera de clientes / autocompletado ====================
+  // El listado se mantiene en el servidor (data/clients.json) y se edita desde el
+  // botón "Clientes". Cada representante ve: clientes compartidos + los suyos.
+  var catalogo = {shared:[],byUser:{},ownUsername:'',editable:false,users:[]};
+  var acInstancias = [];
+
+  function normCliente(s){
+    return String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .toLowerCase().trim().replace(/\s+/g,' ');
+  }
+  function usernameDe(userId){
+    var u=(catalogo.users||[]).find(function(x){return x.id===userId;})
+       || (allUsers||[]).find(function(x){return x.id===userId;});
+    if(u) return u.username;
+    return (me && userId===me.id) ? catalogo.ownUsername : '';
+  }
+  function carteraPara(userId){
+    var un=usernameDe(userId);
+    var propia=(un && catalogo.byUser && catalogo.byUser[un])||[];
+    var vistos={}, out=[];
+    (catalogo.shared||[]).concat(propia).forEach(function(c){
+      var k=normCliente(c); if(k && !vistos[k]){ vistos[k]=1; out.push(c); }
+    });
+    return out;
+  }
+  function ownerDelFormulario(){
+    if(jefeDeEquipo() && $('iRep') && $('iRep').value) return $('iRep').value;
+    return me.id;
+  }
+  function actualizarHints(){ acInstancias.forEach(function(f){ try{ f(); }catch(e){} }); }
+
+  function cargarCatalogo(){
+    return api('GET','/api/clients').then(function(res){
+      if(!res.ok) return;
+      catalogo={
+        shared:res.data.shared||[], byUser:res.data.byUser||{},
+        ownUsername:res.data.ownUsername||me.username,
+        editable:!!res.data.editable, users:res.data.users||[],
+        updatedAt:res.data.updatedAt||0
+      };
+      if(catalogo.editable && $('clientsModal')) llenarSelectCat();
+      actualizarHints();
+    });
+  }
+
+  // Combobox reutilizable: filtra mientras se escribe, permite texto libre y avisa
+  // cuando el nombre no pertenece a la cartera (cliente potencial).
+  function crearAutocomplete(input,menu,hint,obtenerLista){
+    if(!input||!menu) return;
+    var activo=-1, actuales=[];
+    function cerrar(){ menu.classList.add('hide'); activo=-1; }
+    function actualizarHint(){
+      if(!hint) return;
+      var lista=obtenerLista()||[], val=normCliente(input.value);
+      hint.classList.add('hide'); hint.classList.remove('info');
+      if(!val) return;
+      if(!lista.length){
+        hint.textContent='Aún no hay cartera cargada para este representante.';
+        hint.classList.add('info'); hint.classList.remove('hide'); return;
+      }
+      if(!lista.some(function(c){ return normCliente(c)===val; })){
+        hint.innerHTML='No está en la cartera → se guardará como <b>cliente potencial</b>';
+        hint.classList.remove('hide');
+      }
+    }
+    function seleccionar(nombre){ input.value=nombre; cerrar(); actualizarHint(); }
+    function pintar(){
+      var lista=obtenerLista()||[], q=normCliente(input.value);
+      var res=(q ? lista.filter(function(c){ return normCliente(c).indexOf(q)>=0; }) : lista.slice(0,60)).slice(0,60);
+      actuales=res; activo=-1; menu.innerHTML='';
+      if(!res.length){
+        var e=document.createElement('div'); e.className='ac-empty';
+        e.textContent=lista.length?'Sin coincidencias en la cartera':'Cartera vacía: escriba el nombre del cliente';
+        menu.appendChild(e);
+      } else {
+        res.forEach(function(nombre,idx){
+          var it=document.createElement('div'); it.className='ac-item';
+          it.textContent=nombre;
+          it.addEventListener('mousedown',function(ev){ ev.preventDefault(); seleccionar(nombre); });
+          menu.appendChild(it);
+        });
+      }
+      menu.classList.remove('hide');
+      actualizarHint();
+    }
+    function mover(d){
+      if(menu.classList.contains('hide')){ pintar(); return; }
+      if(!actuales.length) return;
+      activo=(activo+d+actuales.length)%actuales.length;
+      Array.prototype.forEach.call(menu.querySelectorAll('.ac-item'),function(el,i){
+        el.classList.toggle('on',i===activo);
+      });
+      var on=menu.querySelector('.ac-item.on'); if(on && on.scrollIntoView) on.scrollIntoView({block:'nearest'});
+    }
+    input.addEventListener('focus',pintar);
+    input.addEventListener('input',pintar);
+    input.addEventListener('keydown',function(e){
+      if(e.key==='ArrowDown'){ e.preventDefault(); mover(1); }
+      else if(e.key==='ArrowUp'){ e.preventDefault(); mover(-1); }
+      else if(e.key==='Enter'){
+        if(!menu.classList.contains('hide') && activo>=0){ e.preventDefault(); seleccionar(actuales[activo]); }
+        else cerrar();
+      }
+      else if(e.key==='Escape') cerrar();
+    });
+    input.addEventListener('blur',function(){ setTimeout(cerrar,140); });
+    acInstancias.push(actualizarHint);
+  }
+
+  function initAutocompletes(){
+    crearAutocomplete($('iCliente'),$('clienteMenu'),$('clienteHint'),function(){
+      return carteraPara(ownerDelFormulario());
+    });
+    crearAutocomplete($('todoCliente'),$('todoClienteMenu'),$('todoClienteHint'),function(){
+      return carteraPara(($('todoAssignee')&&$('todoAssignee').value)||me.id);
+    });
+    if($('iRep')) $('iRep').addEventListener('change',actualizarHints);
+    if($('todoAssignee')) $('todoAssignee').addEventListener('change',actualizarHints);
+  }
+
+  // ---- Panel de administración de la cartera ----
+  function llenarSelectCat(){
+    var sel=$('catUser'); if(!sel) return;
+    var cur=sel.value;
+    var usuarios=(catalogo.users||[]).filter(function(u){ return u.role!=='admin'; });
+    sel.innerHTML='';
+    usuarios.forEach(function(u){
+      var o=document.createElement('option'); o.value=u.username;
+      o.textContent=u.name+' ('+u.username+')'; sel.appendChild(o);
+    });
+    if(cur && usuarios.some(function(u){return u.username===cur;})) sel.value=cur;
+    mostrarCarteraUsuario();
+  }
+  function mostrarCarteraUsuario(){
+    var un=$('catUser').value;
+    var lista=(catalogo.byUser&&catalogo.byUser[un])||[];
+    $('catLista').value=lista.join('\n');
+    $('catShared').value=(catalogo.shared||[]).join('\n');
+    $('catCount').textContent=lista.length+' cliente'+(lista.length===1?'':'s')+' en esta cartera · '
+      +(catalogo.shared||[]).length+' compartido'+((catalogo.shared||[]).length===1?'':'s');
+    renderPotenciales();
+  }
+  function renderPotenciales(){
+    var box=$('catPotenciales'); if(!box) return;
+    var map={};
+    rows.forEach(function(r){
+      if(!r.clientePotencial||!r.cliente) return;
+      var un=usernameDe(r.ownerId)||'—';
+      var key=un+'\u0001'+r.cliente;
+      if(!map[key]) map[key]={un:un,cliente:r.cliente,n:0};
+      map[key].n++;
+    });
+    var keys=Object.keys(map).sort();
+    box.innerHTML='';
+    if(!keys.length){ box.innerHTML='<span class="muted">Ninguno por ahora.</span>'; return; }
+    keys.forEach(function(k){
+      var x=map[k], row=document.createElement('div'); row.className='cat-row';
+      var txt=document.createElement('span');
+      txt.textContent=x.cliente+' · '+x.un+(x.n>1?' · '+x.n+' actividades':'');
+      var btn=document.createElement('button'); btn.className='ghost small'; btn.textContent='Agregar a cartera';
+      btn.disabled=(x.un==='—');
+      btn.onclick=function(){
+        var byUser={};
+        Object.keys(catalogo.byUser||{}).forEach(function(u){ byUser[u]=(catalogo.byUser[u]||[]).slice(); });
+        var lista=byUser[x.un]||[];
+        if(lista.indexOf(x.cliente)<0) lista.push(x.cliente);
+        byUser[x.un]=lista;
+        api('PUT','/api/clients',{shared:catalogo.shared,byUser:byUser}).then(function(res){
+          if(!res.ok){ $('catErr').textContent=res.data.error||'No se pudo guardar'; return; }
+          cargarCatalogo().then(function(){
+            // El servidor recalcula clientePotencial con la cartera nueva.
+            if(typeof loadRows==='function') loadRows();
+          });
+        });
+      };
+      row.appendChild(txt); row.appendChild(btn); box.appendChild(row);
+    });
+  }
+  function guardarCartera(){
+    $('catErr').textContent='';
+    var byUser={};
+    Object.keys(catalogo.byUser||{}).forEach(function(k){ byUser[k]=(catalogo.byUser[k]||[]).slice(); });
+    var un=$('catUser').value;
+    if(un) byUser[un]=$('catLista').value.split(/\r?\n/);
+    return api('PUT','/api/clients',{
+      shared:$('catShared').value.split(/\r?\n/), byUser:byUser
+    }).then(function(res){
+      if(!res.ok){ $('catErr').textContent=res.data.error||'No se pudo guardar'; return; }
+      $('catErr').style.color='var(--ok)'; $('catErr').textContent='Cartera guardada correctamente.';
+      cargarCatalogo().then(function(){ if(typeof loadRows==='function') loadRows(); });
+      setTimeout(function(){ $('catErr').textContent=''; $('catErr').style.color=''; },2500);
+    });
+  }
+  $('clientsBtn').onclick=function(){
+    $('catErr').textContent='';
+    cargarCatalogo().then(function(){ $('clientsModal').classList.remove('hide'); });
+  };
+  $('closeClients').onclick=function(){ $('clientsModal').classList.add('hide'); };
+  $('clientsModal').addEventListener('click',function(e){ if(e.target===$('clientsModal')) $('clientsModal').classList.add('hide'); });
+  $('catUser').addEventListener('change',mostrarCarteraUsuario);
+  $('saveCat').onclick=guardarCartera;
 
   // ---- init ----
   api('GET','/api/me').then(function(res){
@@ -589,7 +836,7 @@
     // estado selects
     fillSelect($('iEstado'), estados, 'Planificado');
     fillSelect($('fEstado'), estados, '');
-    if(me.role==='admin') $('usersBtn').classList.remove('hide'); // gestionar usuarios: solo admin
+    if(me.role==='admin'){ $('usersBtn').classList.remove('hide'); $('clientsBtn').classList.remove('hide'); }
     aplicarPermisos();
     // Consultar usuarios visibles: sirve para el filtro y para saber si tiene gente a cargo
     api('GET','/api/users').then(function(res){
@@ -619,6 +866,8 @@
     loadModules();
     loadRows();
     initTodo();
+    initAutocompletes();
+    cargarCatalogo();
   }
   
   // ---- Cargar módulos disponibles ----
@@ -1042,6 +1291,7 @@
     api('GET', apiUrl('/rows')+(q.length?'?'+q.join('&'):'')).then(function(res){
       if(!res.ok) return;
       rows=res.data.rows||[]; ownerNames=res.data.ownerNames||{};
+      if(catalogo.editable) renderPotenciales();
       renderRows();
       renderMetaPanel();
       if(view==='cal') renderCalendar();
@@ -1066,6 +1316,10 @@
     left.appendChild(sem); left.appendChild(who);
     var right=document.createElement('div');
     var st=document.createElement('span'); st.innerHTML=estadoBadge(r.estado); right.appendChild(st);
+    if(r.clientePotencial){
+      var pb=document.createElement('span'); pb.className='badge b-pot'; pb.style.marginLeft='6px';
+      pb.textContent='Potencial'; right.appendChild(pb);
+    }
     hd.appendChild(left); hd.appendChild(right);
 
     var meta=document.createElement('div'); meta.className='meta';
@@ -1132,6 +1386,7 @@
     $('iRealizada').value=r.ventaRealizada||''; $('iObs').value=r.observaciones||'';
     $('iResultado').value=r.resultado||'';
     if(jefeDeEquipo()){ llenarSelectRep(r.ownerId); }
+    actualizarHints();
     window.scrollTo({top:0,behavior:'smooth'});
   }
   function resetForm(){
@@ -1139,6 +1394,7 @@
     ['iSemana','iDia','iUbicacion','iCliente','iProducto','iTrabajo','iConcretar','iRealizada','iObs','iResultado'].forEach(function(id){$(id).value='';});
     $('iEstado').value='Planificado';
     if(jefeDeEquipo()) llenarSelectRep(adminOwner);
+    actualizarHints();
   }
   function delRow(id){
     if(!confirm('¿Eliminar esta actividad?')) return;
@@ -1447,7 +1703,7 @@
     html+=detailKV('Semana', r.semana);
     html+=detailKV('Día', r.dia);
     html+=detailKV('Ubicación', r.ubicacion);
-    html+=detailKV('Cliente', r.cliente);
+    html+=detailKV('Cliente', r.cliente + (r.clientePotencial?'  (cliente potencial)':''));
     html+=detailKV('Producto a promocionar', r.producto);
     html+=detailKV('Trabajo a realizar', r.trabajo);
     html+=detailKV('Venta a concretar', money(r.ventaConcretar));
@@ -1776,6 +2032,7 @@
     if(jefeDeEquipo() && t.assigneeId){
       llenarSelectRep(t.assigneeId);
     }
+    actualizarHints();
     // Enfocar el campo de día para que el rep elija cuándo programarlo
     $('iDia').focus();
     // Scroll al formulario
@@ -1814,8 +2071,9 @@
     if(jefeDeEquipo() && adminOwner) sel.value = adminOwner;
     // Limpiar campos
     $('todoCliente').value = ''; $('todoUbicacion').value = ''; $('todoProducto').value = '';
-    $('todoTrabajo').value = ''; $('todoVenta').value = ''; $('todoObs').value = '';
+    $('todoTrabajo').value = ''; $('todoVenta').value = '';     $('todoObs').value = '';
     $('todoErr').textContent = '';
+    actualizarHints();
     $('todoModal').classList.remove('hide');
   }
 

@@ -76,6 +76,61 @@ function saveSoon() {
   saveTimer = setTimeout(() => { saveGlobalData(); }, 150);
 }
 
+// ---------------- Cartera de clientes (autocompletado por representante) ----------------
+// Se guarda en data/clients.json (DATA_DIR). Clave = username del usuario, porque es
+// legible para el admin y estable aunque se renombre a la persona.
+function normalizarCliente(s) {
+  return String(s == null ? '' : s)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+function limpiarListaClientes(arr) {
+  if (typeof arr === 'string') arr = arr.split(/\r?\n/);
+  if (!Array.isArray(arr)) return [];
+  const vistos = new Set(), out = [];
+  arr.forEach(item => {
+    const name = String(item == null ? '' : item).trim().replace(/\s+/g, ' ').slice(0, 200);
+    if (!name) return;
+    const key = normalizarCliente(name);
+    if (!key || vistos.has(key)) return;
+    vistos.add(key);
+    out.push(name);
+  });
+  out.sort((a, b) => a.localeCompare(b, 'es'));
+  return out.slice(0, 5000);
+}
+
+function loadClientCatalog() {
+  const file = path.join(DATA_DIR, 'data', 'clients.json');
+  let cat = { shared: [], byUser: {}, updatedAt: 0 };
+  if (fs.existsSync(file)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (raw && typeof raw === 'object') {
+        if (Array.isArray(raw.shared)) cat.shared = raw.shared;
+        if (raw.byUser && typeof raw.byUser === 'object') cat.byUser = raw.byUser;
+        cat.updatedAt = raw.updatedAt || 0;
+      }
+    } catch (e) { /* archivo corrupto: empezar con cartera vacía */ }
+  }
+  return cat;
+}
+
+function saveClientCatalog(cat) {
+  const dir = path.join(DATA_DIR, 'data');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ya existe */ }
+  cat.updatedAt = Date.now();
+  fs.writeFileSync(path.join(dir, 'clients.json'), JSON.stringify(cat, null, 2));
+  return cat;
+}
+
+function carteraDe(username, cat) {
+  const c = cat || loadClientCatalog();
+  const propia = (c.byUser && Array.isArray(c.byUser[username])) ? c.byUser[username] : [];
+  return limpiarListaClientes((c.shared || []).concat(propia));
+}
+
 // ---------------- Capa de datos por módulo ----------------
 function getModuleDataPath(moduleId) {
   const mod = modulesRegistry.modules.find(m => m.id === moduleId);
@@ -303,8 +358,10 @@ function etiquetaSemanaDesdeFecha(iso) {
 function cleanRowInput(body, schema, ownerId, isAdmin) {
   const out = { ownerId };
   
-  const fields = schema && schema.schema ? schema.schema.fields : schema.fields;
-  if (!fields || !Array.isArray(fields)) return out;
+  // Los module.json usan { schema: { fields } }, pero se acepta también { fields }
+  // plano para no perder datos en silencio si algún módulo cambia de formato.
+  const fields = (schema && schema.schema && schema.schema.fields) || (schema && schema.fields) || [];
+  if (!Array.isArray(fields)) return out;
   
   fields.forEach(field => {
     const val = body[field.name];
@@ -327,7 +384,21 @@ function cleanRowInput(body, schema, ownerId, isAdmin) {
         out[field.name] = typeof val === 'string' ? val.trim().slice(0, maxLen) : '';
     }
   });
-  
+
+  // Cliente potencial: se calcula en el servidor comparando el nombre escrito con la
+  // cartera del representante dueño de la fila. Si la cartera aún está vacía no se
+  // clasifica, para no marcar todo como "potencial" antes de cargar el listado.
+  if (schema && schema.id === 'ventas' && out.cliente) {
+    const owner = globalDb.users.find(u => u.id === ownerId);
+    const cartera = carteraDe(owner ? owner.username : '', loadClientCatalog());
+    if (cartera.length) {
+      const n = normalizarCliente(out.cliente);
+      out.clientePotencial = !cartera.some(c => normalizarCliente(c) === n);
+    } else {
+      out.clientePotencial = false;
+    }
+  }
+
   // Autofill semana desde fecha si aplica
   const semanaField = fields.find(f => f.autoFill === 'weekLabelFromDate');
   if (semanaField && !isAdmin) {
@@ -496,6 +567,26 @@ const server = http.createServer(async (req, res) => {
       if (dia) rows = rows.filter(r => r.dia === dia);
 
       rows.sort((a, b) => (a.dia || '').localeCompare(b.dia || '') || a.createdAt - b.createdAt);
+
+      // "Cliente potencial" se recalcula al leer: la cartera es la fuente de verdad.
+      // Así, cuando el admin agrega un cliente detectado, el badge desaparece de
+      // inmediato sin tener que editar una por una las actividades ya guardadas.
+      if (moduleId === 'ventas' && rows.length) {
+        const cat = loadClientCatalog();
+        const cache = new Map();
+        rows = rows.map(r => {
+          if (!r.cliente) return r;
+          if (!cache.has(r.ownerId)) {
+            const u = globalDb.users.find(x => x.id === r.ownerId);
+            const cartera = carteraDe(u ? u.username : '', cat);
+            cache.set(r.ownerId, cartera.length ? new Set(cartera.map(normalizarCliente)) : null);
+          }
+          const enCartera = cache.get(r.ownerId);
+          // Sin cartera cargada no se marca nada como potencial (evita falsos positivos).
+          const potencial = enCartera ? !enCartera.has(normalizarCliente(r.cliente)) : false;
+          return potencial === !!r.clientePotencial ? r : Object.assign({}, r, { clientePotencial: potencial });
+        });
+      }
       
       const ownerNames = {};
       globalDb.users.forEach(u => { ownerNames[u.id] = u.name; });
@@ -665,6 +756,56 @@ const server = http.createServer(async (req, res) => {
       modulesRegistry.modules = modulesRegistry.modules.filter(m => m.id !== moduleId);
       saveModulesRegistry();
       return sendJSON(res, 200, { ok: true });
+    }
+
+    // ---- Cartera de clientes (autocompletado en el formulario de Ventas) ----
+    // GET: cada usuario recibe solo la cartera de la gente que puede ver; el admin
+    // recibe todo, más el listado de usuarios para el panel de mantenimiento.
+    if (pathname === '/api/clients' && method === 'GET') {
+      const cat = loadClientCatalog();
+      const ids = idsVisiblesPara(me);
+      const permitidos = new Set(
+        globalDb.users
+          .filter(u => ids === null || ids.indexOf(u.id) >= 0)
+          .map(u => u.username)
+      );
+      const byUser = {};
+      Object.keys(cat.byUser || {}).forEach(username => {
+        if (ids === null || permitidos.has(username)) {
+          byUser[username] = limpiarListaClientes(cat.byUser[username]);
+        }
+      });
+      return sendJSON(res, 200, {
+        shared: limpiarListaClientes(cat.shared),
+        byUser: byUser,
+        ownUsername: me.username,
+        editable: me.role === 'admin',
+        users: globalDb.users
+          .filter(u => ids === null || ids.indexOf(u.id) >= 0)
+          .map(u => ({ id: u.id, name: u.name, username: u.username, role: u.role })),
+        updatedAt: cat.updatedAt || 0
+      });
+    }
+
+    // PUT: reemplaza la cartera completa (solo administrador).
+    // byUser viene claveado por username; se ignoran usuarios inexistentes.
+    if (pathname === '/api/clients' && method === 'PUT') {
+      if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Solo el administrador puede editar la cartera de clientes' });
+      const body = await readBody(req);
+      const usernames = new Set(globalDb.users.map(u => u.username));
+      const byUser = {};
+      const src = (body.byUser && typeof body.byUser === 'object' && !Array.isArray(body.byUser)) ? body.byUser : {};
+      Object.keys(src).forEach(k => {
+        if (!usernames.has(k)) return;
+        byUser[k] = limpiarListaClientes(src[k]);
+      });
+      const cat = saveClientCatalog({ shared: limpiarListaClientes(body.shared || []), byUser: byUser });
+      return sendJSON(res, 200, {
+        ok: true,
+        shared: cat.shared.length,
+        users: Object.keys(cat.byUser).length,
+        updatedAt: cat.updatedAt
+      });
     }
 
     // ---- ToDo (tareas pre-asignadas por supervisor/admin) ----
