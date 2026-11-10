@@ -131,6 +131,7 @@
 </div>
 
 <script src="js/modules.js"></script>
+<script src="js/clientes-autocomplete.js"></script>
 <script src="js/renderer.js"></script>
 <script src="js/xlsx.js"></script>
 <script>
@@ -164,6 +165,7 @@
     $('moduleSelector').classList.remove('hide');
     $('whoName').textContent=me.name;
     $('whoRole').textContent=me.role==='admin'?'Administrador':me.role;
+    if(window.RainbowClientes) RainbowClientes.cargar(); // listado maestro de clientes
     loadModules();
   }
   

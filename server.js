@@ -76,9 +76,12 @@ function saveSoon() {
   saveTimer = setTimeout(() => { saveGlobalData(); }, 150);
 }
 
-// ---------------- Cartera de clientes (autocompletado por representante) ----------------
-// Se guarda en data/clients.json (DATA_DIR). Clave = username del usuario, porque es
-// legible para el admin y estable aunque se renombre a la persona.
+// ---------------- Listado maestro de clientes (autocompletado) ----------------
+// El listado es UNICO y está disponible para TODOS los usuarios: cada RTC/KAM
+// elige su cliente escribiendo y filtrando. La base va versionada en el repo
+// (clientes-base.json) para que un despliegue nuevo ya la tenga; las altas/bajas
+// del administrador se guardan aparte en DATA_DIR/data/clients.json como
+// "extra" y "removed", de modo que nunca se pisa la base al editar.
 function normalizarCliente(s) {
   return String(s == null ? '' : s)
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -101,34 +104,59 @@ function limpiarListaClientes(arr) {
   return out.slice(0, 5000);
 }
 
+const CLIENTES_BASE_FILE = path.join(__dirname, 'clientes-base.json');
+function loadClientesBase() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CLIENTES_BASE_FILE, 'utf8'));
+    return { version: raw.version || 1, clientes: limpiarListaClientes(raw.clientes || []) };
+  } catch (e) { return { version: 0, clientes: [] }; }
+}
+
 function loadClientCatalog() {
+  const base = loadClientesBase();
+  let data = {};
   const file = path.join(DATA_DIR, 'data', 'clients.json');
-  let cat = { shared: [], byUser: {}, updatedAt: 0 };
   if (fs.existsSync(file)) {
     try {
       const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (raw && typeof raw === 'object') {
-        if (Array.isArray(raw.shared)) cat.shared = raw.shared;
-        if (raw.byUser && typeof raw.byUser === 'object') cat.byUser = raw.byUser;
-        cat.updatedAt = raw.updatedAt || 0;
-      }
-    } catch (e) { /* archivo corrupto: empezar con cartera vacía */ }
+      if (raw && typeof raw === 'object') data = raw;
+    } catch (e) { /* archivo corrupto: usar solo la base */ }
   }
-  return cat;
+  // Compatibilidad con el formato anterior (shared + byUser por representante):
+  // esos nombres se conservan como altas para no perder nada ya cargado.
+  const legado = [];
+  if (Array.isArray(data.shared)) legado.push(...data.shared);
+  if (data.byUser && typeof data.byUser === 'object') {
+    Object.keys(data.byUser).forEach(k => {
+      if (Array.isArray(data.byUser[k])) legado.push(...data.byUser[k]);
+    });
+  }
+  const extras = limpiarListaClientes((Array.isArray(data.extra) ? data.extra : []).concat(legado));
+  const removidos = new Set((Array.isArray(data.removed) ? data.removed : []).map(normalizarCliente));
+  const clientes = limpiarListaClientes(base.clientes.concat(extras))
+    .filter(c => !removidos.has(normalizarCliente(c)));
+  return { clientes: clientes, baseVersion: base.version, updatedAt: data.updatedAt || 0 };
 }
 
-function saveClientCatalog(cat) {
+function saveClientCatalog(lista) {
+  const base = loadClientesBase();
+  const final = limpiarListaClientes(lista);
+  const baseKeys = new Set(base.clientes.map(normalizarCliente));
+  const finalKeys = new Set(final.map(normalizarCliente));
+  const payload = {
+    baseVersion: base.version,
+    extra: final.filter(c => !baseKeys.has(normalizarCliente(c))),
+    removed: base.clientes.filter(c => !finalKeys.has(normalizarCliente(c))),
+    updatedAt: Date.now()
+  };
   const dir = path.join(DATA_DIR, 'data');
   try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ya existe */ }
-  cat.updatedAt = Date.now();
-  fs.writeFileSync(path.join(dir, 'clients.json'), JSON.stringify(cat, null, 2));
-  return cat;
+  fs.writeFileSync(path.join(dir, 'clients.json'), JSON.stringify(payload, null, 2));
+  return { clientes: final, updatedAt: payload.updatedAt };
 }
 
-function carteraDe(username, cat) {
-  const c = cat || loadClientCatalog();
-  const propia = (c.byUser && Array.isArray(c.byUser[username])) ? c.byUser[username] : [];
-  return limpiarListaClientes((c.shared || []).concat(propia));
+function clientesDelCatalogo(cat) {
+  return (cat && Array.isArray(cat.clientes)) ? cat.clientes : loadClientCatalog().clientes;
 }
 
 // ---------------- Capa de datos por módulo ----------------
@@ -385,15 +413,13 @@ function cleanRowInput(body, schema, ownerId, isAdmin) {
     }
   });
 
-  // Cliente potencial: se calcula en el servidor comparando el nombre escrito con la
-  // cartera del representante dueño de la fila. Si la cartera aún está vacía no se
-  // clasifica, para no marcar todo como "potencial" antes de cargar el listado.
+  // Cliente potencial: se compara contra el LISTADO MAESTRO (único para todos).
+  // Si el listado estuviera vacío no se clasifica, para evitar falsos positivos.
   if (schema && schema.id === 'ventas' && out.cliente) {
-    const owner = globalDb.users.find(u => u.id === ownerId);
-    const cartera = carteraDe(owner ? owner.username : '', loadClientCatalog());
-    if (cartera.length) {
+    const listado = clientesDelCatalogo(loadClientCatalog());
+    if (listado.length) {
       const n = normalizarCliente(out.cliente);
-      out.clientePotencial = !cartera.some(c => normalizarCliente(c) === n);
+      out.clientePotencial = !listado.some(c => normalizarCliente(c) === n);
     } else {
       out.clientePotencial = false;
     }
@@ -568,22 +594,15 @@ const server = http.createServer(async (req, res) => {
 
       rows.sort((a, b) => (a.dia || '').localeCompare(b.dia || '') || a.createdAt - b.createdAt);
 
-      // "Cliente potencial" se recalcula al leer: la cartera es la fuente de verdad.
-      // Así, cuando el admin agrega un cliente detectado, el badge desaparece de
-      // inmediato sin tener que editar una por una las actividades ya guardadas.
+      // "Cliente potencial" se recalcula al leer: el listado maestro es la fuente
+      // de verdad. Así, cuando el admin agrega un cliente detectado, el badge
+      // desaparece de inmediato sin editar una por una las actividades.
       if (moduleId === 'ventas' && rows.length) {
-        const cat = loadClientCatalog();
-        const cache = new Map();
+        const listado = clientesDelCatalogo(loadClientCatalog());
+        const enListado = listado.length ? new Set(listado.map(normalizarCliente)) : null;
         rows = rows.map(r => {
           if (!r.cliente) return r;
-          if (!cache.has(r.ownerId)) {
-            const u = globalDb.users.find(x => x.id === r.ownerId);
-            const cartera = carteraDe(u ? u.username : '', cat);
-            cache.set(r.ownerId, cartera.length ? new Set(cartera.map(normalizarCliente)) : null);
-          }
-          const enCartera = cache.get(r.ownerId);
-          // Sin cartera cargada no se marca nada como potencial (evita falsos positivos).
-          const potencial = enCartera ? !enCartera.has(normalizarCliente(r.cliente)) : false;
+          const potencial = enListado ? !enListado.has(normalizarCliente(r.cliente)) : false;
           return potencial === !!r.clientePotencial ? r : Object.assign({}, r, { clientePotencial: potencial });
         });
       }
@@ -758,54 +777,46 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { ok: true });
     }
 
-    // ---- Cartera de clientes (autocompletado en el formulario de Ventas) ----
-    // GET: cada usuario recibe solo la cartera de la gente que puede ver; el admin
-    // recibe todo, más el listado de usuarios para el panel de mantenimiento.
+    // ---- Listado maestro de clientes (autocompletado en Ventas) ----
+    // GET: TODOS los usuarios reciben el listado completo (393 clientes de la base).
     if (pathname === '/api/clients' && method === 'GET') {
       const cat = loadClientCatalog();
       const ids = idsVisiblesPara(me);
-      const permitidos = new Set(
-        globalDb.users
-          .filter(u => ids === null || ids.indexOf(u.id) >= 0)
-          .map(u => u.username)
-      );
-      const byUser = {};
-      Object.keys(cat.byUser || {}).forEach(username => {
-        if (ids === null || permitidos.has(username)) {
-          byUser[username] = limpiarListaClientes(cat.byUser[username]);
-        }
-      });
       return sendJSON(res, 200, {
-        shared: limpiarListaClientes(cat.shared),
-        byUser: byUser,
+        clientes: cat.clientes,
+        shared: cat.clientes,   // compatibilidad con versiones anteriores del front
+        byUser: {},
         ownUsername: me.username,
         editable: me.role === 'admin',
         users: globalDb.users
           .filter(u => ids === null || ids.indexOf(u.id) >= 0)
           .map(u => ({ id: u.id, name: u.name, username: u.username, role: u.role })),
+        total: cat.clientes.length,
+        baseVersion: cat.baseVersion,
         updatedAt: cat.updatedAt || 0
       });
     }
 
-    // PUT: reemplaza la cartera completa (solo administrador).
-    // byUser viene claveado por username; se ignoran usuarios inexistentes.
+    // PUT: reemplaza el listado maestro (solo administrador). Se guardan las
+    // diferencias contra la base versionada; la base en sí nunca se modifica.
     if (pathname === '/api/clients' && method === 'PUT') {
-      if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Solo el administrador puede editar la cartera de clientes' });
+      if (me.role !== 'admin') return sendJSON(res, 403, { error: 'Solo el administrador puede editar el listado de clientes' });
       const body = await readBody(req);
-      const usernames = new Set(globalDb.users.map(u => u.username));
-      const byUser = {};
-      const src = (body.byUser && typeof body.byUser === 'object' && !Array.isArray(body.byUser)) ? body.byUser : {};
-      Object.keys(src).forEach(k => {
-        if (!usernames.has(k)) return;
-        byUser[k] = limpiarListaClientes(src[k]);
-      });
-      const cat = saveClientCatalog({ shared: limpiarListaClientes(body.shared || []), byUser: byUser });
-      return sendJSON(res, 200, {
-        ok: true,
-        shared: cat.shared.length,
-        users: Object.keys(cat.byUser).length,
-        updatedAt: cat.updatedAt
-      });
+      let lista;
+      if (Array.isArray(body.clientes)) lista = body.clientes;
+      else if (typeof body.clientes === 'string') lista = body.clientes.split(/\r?\n/);
+      else {
+        // Compatibilidad con el formato anterior {shared, byUser}
+        const legado = Array.isArray(body.shared) ? body.shared.slice() : [];
+        if (body.byUser && typeof body.byUser === 'object') {
+          Object.keys(body.byUser).forEach(k => {
+            if (Array.isArray(body.byUser[k])) legado.push(...body.byUser[k]);
+          });
+        }
+        lista = legado.length ? legado : clientesDelCatalogo(loadClientCatalog());
+      }
+      const cat = saveClientCatalog(lista);
+      return sendJSON(res, 200, { ok: true, total: cat.clientes.length, updatedAt: cat.updatedAt });
     }
 
     // ---- ToDo (tareas pre-asignadas por supervisor/admin) ----

@@ -58,6 +58,16 @@
   .ac-hint.info{color:var(--muted);font-weight:400}
   .cat-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:7px 0;
     border-bottom:1px solid var(--line);font-size:13px}
+  .ac-foot{padding:7px 11px;font-size:11px;color:var(--muted);background:#F8FAFC;
+    border-top:1px solid var(--line);position:sticky;bottom:0}
+  .ac-mark{background:#DCFCE7;border-radius:3px;font-weight:700}
+  .cat-items{max-height:230px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;margin-top:6px}
+  .cat-item{display:flex;gap:8px;align-items:center;justify-content:space-between;
+    padding:6px 10px;font-size:13px;border-bottom:1px solid #EEF2F6}
+  .cat-item:last-child{border-bottom:none}
+  .cat-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  details.cat-bulk{margin-top:12px}
+  details.cat-bulk summary{cursor:pointer;font-size:13px}
   .muted{color:var(--muted)}
   .right{text-align:right}
   .center{text-align:center}
@@ -270,7 +280,7 @@
         <div>
           <label>Cliente</label>
           <div class="ac-wrap">
-            <input id="iCliente" autocomplete="off" placeholder="Escriba para buscar en su cartera…">
+            <input id="iCliente" autocomplete="off" placeholder="Escriba el nombre o una palabra del cliente…">
             <div id="clienteMenu" class="ac-menu hide"></div>
           </div>
           <div id="clienteHint" class="ac-hint hide"></div>
@@ -436,26 +446,32 @@
     </div>
   </div>
 
-  <!-- Modal Cartera de clientes -->
+  <!-- Modal Listado maestro de clientes -->
   <div id="clientsModal" class="overlay hide">
-    <div class="modal" style="max-width:640px">
+    <div class="modal" style="max-width:680px">
       <div class="row-toolbar">
-        <h2>Cartera de clientes</h2>
+        <h2>Listado maestro de clientes</h2>
         <button class="ghost small" id="closeClients">Cerrar</button>
       </div>
-      <p class="muted" style="margin:0 0 12px">Pegue <b>un cliente por línea</b> (puede copiar directamente una columna de Excel). Cada representante verá solo su cartera al escribir en el formulario; si el cliente no está en la lista, la actividad se guardará como <b>cliente potencial</b>.</p>
-      <label>Representante</label>
-      <select id="catUser"></select>
-      <div id="catCount" class="muted" style="font-size:12px;margin:6px 0">—</div>
-      <label style="margin-top:8px">Clientes de este representante (uno por línea)</label>
-      <textarea id="catLista" rows="9" placeholder="Agro Marino&#10;Agro Sol&#10;Agro Tropical"></textarea>
-      <label style="margin-top:12px">Clientes compartidos (visibles para todos)</label>
-      <textarea id="catShared" rows="3" placeholder="Opcional: uno por línea"></textarea>
-      <button id="saveCat" style="width:100%;margin-top:12px">Guardar cartera</button>
+      <p class="muted" style="margin:0 0 12px">Este listado es <b>único y está disponible para todos</b> los RTC y KAM. Ellos seleccionan su cliente escribiendo el nombre o cualquier palabra contenida en él. Si el nombre no figura, la actividad se guarda como <b>cliente potencial</b>.</p>
+      <div id="catCount" class="muted" style="font-size:12px;margin:0 0 8px">—</div>
+      <label>Buscar en el listado</label>
+      <input id="catBuscar" autocomplete="off" placeholder="Ej: chapi, vallesol, peru…">
+      <div id="catItems" class="cat-items"></div>
+      <div class="row-toolbar" style="margin-top:10px;gap:8px">
+        <input id="catNuevo" placeholder="Nombre del cliente a agregar" style="flex:1">
+        <button class="ghost small" id="catAdd">Agregar</button>
+      </div>
+      <details class="cat-bulk">
+        <summary class="muted">Edición masiva: pegar el listado completo (uno por línea)</summary>
+        <textarea id="catLista" rows="8" style="margin-top:8px" placeholder="Un cliente por línea"></textarea>
+        <p class="muted" style="font-size:12px;margin:4px 0 0">Si edita este recuadro, al guardar se tomará como listado definitivo (reemplaza el actual).</p>
+      </details>
+      <button id="saveCat" style="width:100%;margin-top:12px">Guardar listado</button>
       <div id="catErr" class="err"></div>
       <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
       <h2 style="font-size:14px">Clientes potenciales detectados</h2>
-      <p class="muted" style="font-size:12px;margin:0 0 8px">Nombres escritos que no estaban en la cartera, según las actividades cargadas con los filtros actuales. Con un clic los incorpora a la cartera de su representante.</p>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">Nombres escritos que no estaban en el listado, según las actividades cargadas con los filtros actuales. Con un clic los incorpora al listado maestro.</p>
       <div id="catPotenciales" class="muted" style="font-size:13px">—</div>
     </div>
   </div>
@@ -476,7 +492,7 @@
         <div>
           <label>Cliente</label>
           <div class="ac-wrap">
-            <input id="todoCliente" autocomplete="off" placeholder="Escriba para buscar en la cartera…">
+            <input id="todoCliente" autocomplete="off" placeholder="Escriba el nombre o una palabra del cliente…">
             <div id="todoClienteMenu" class="ac-menu hide"></div>
           </div>
           <div id="todoClienteHint" class="ac-hint hide"></div>
@@ -545,15 +561,67 @@
     return '<span class="badge '+c+'">'+esc(e)+'</span>';
   }
 
-  // ==================== Cartera de clientes / autocompletado ====================
-  // El listado se mantiene en el servidor (data/clients.json) y se edita desde el
-  // botón "Clientes". Cada representante ve: clientes compartidos + los suyos.
-  var catalogo = {shared:[],byUser:{},ownUsername:'',editable:false,users:[]};
+  // ============ Listado maestro de clientes / autocompletado ============
+  // El listado es UNICO para todos los usuarios y se mantiene en el servidor
+  // (clientes-base.json + altas/bajas del admin). Se edita desde "Clientes".
+  var catalogo = {clientes:[],ownUsername:'',editable:false,users:[],total:0};
   var acInstancias = [];
+  var catTrabajo = [];       // copia editable del listado dentro del modal
+  var catBulkDirty = false;  // el admin editó el recuadro de carga masiva
 
   function normCliente(s){
     return String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
       .toLowerCase().trim().replace(/\s+/g,' ');
+  }
+  // Separa el texto en palabras, ignorando tildes, puntos, guiones y comillas:
+  // "AG-CAMOND E.I.R.L." -> ["ag","camond","i","r","l"] (se descartan las de 1 letra).
+  function tokensCliente(s){
+    var limpio=normCliente(s).replace(/[^a-z0-9]+/g,' ').trim();
+    if(!limpio) return [];
+    var todas=limpio.split(/\s+/);
+    var utiles=todas.filter(function(x){ return x.length>=2; });
+    return utiles.length?utiles:todas;
+  }
+  // Puntaje de relevancia. Devuelve -1 si alguna palabra buscada no aparece.
+  function puntajeCliente(nombre,toks){
+    if(!toks.length) return 0;
+    var n=normCliente(nombre), palabras=tokensCliente(nombre), score=0;
+    for(var i=0;i<toks.length;i++){
+      var t=toks[i], p=-1;
+      if(palabras.some(function(w){ return w.indexOf(t)===0; })) p=3;       // inicio de palabra
+      else if(palabras.some(function(w){ return w.indexOf(t)>0; })) p=2;     // dentro de palabra
+      else if(n.indexOf(t)>=0) p=1;                                         // subcadena
+      if(p<0) return -1;
+      score+=p;
+    }
+    var frase=toks.join(' ');
+    if(n.indexOf(frase)===0) score+=12;
+    else if(n.indexOf(frase)>=0) score+=6;
+    return score;
+  }
+  // Filtra por CUALQUIER palabra del nombre, en cualquier orden, y ordena por relevancia.
+  function filtrarClientes(lista,query,limite){
+    var toks=tokensCliente(query), res=[];
+    if(!toks.length) return (lista||[]).slice(0,limite||80);
+    (lista||[]).forEach(function(c){
+      var p=puntajeCliente(c,toks);
+      if(p>=0) res.push({nombre:c,p:p});
+    });
+    res.sort(function(a,b){ return b.p-a.p || a.nombre.localeCompare(b.nombre,'es'); });
+    return res.slice(0,limite||80).map(function(x){ return x.nombre; });
+  }
+  // Resalta las palabras coincidentes usando nodos de texto (sin innerHTML -> seguro).
+  function crearItemNombre(nombre,toks){
+    var frag=document.createDocumentFragment();
+    nombre.split(/(\s+)/).forEach(function(parte){
+      if(/^\s+$/.test(parte)){ frag.appendChild(document.createTextNode(parte)); return; }
+      var p=parte.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        .replace(/[^a-z0-9]/gi,'').toLowerCase();
+      var coincide=toks.length && toks.some(function(t){ return p.indexOf(t)>=0; });
+      if(coincide){ var b=document.createElement('span'); b.className='ac-mark'; b.textContent=parte; frag.appendChild(b); }
+      else frag.appendChild(document.createTextNode(parte));
+    });
+    return frag;
   }
   function usernameDe(userId){
     var u=(catalogo.users||[]).find(function(x){return x.id===userId;})
@@ -561,74 +629,66 @@
     if(u) return u.username;
     return (me && userId===me.id) ? catalogo.ownUsername : '';
   }
-  function carteraPara(userId){
-    var un=usernameDe(userId);
-    var propia=(un && catalogo.byUser && catalogo.byUser[un])||[];
-    var vistos={}, out=[];
-    (catalogo.shared||[]).concat(propia).forEach(function(c){
-      var k=normCliente(c); if(k && !vistos[k]){ vistos[k]=1; out.push(c); }
-    });
-    return out;
-  }
-  function ownerDelFormulario(){
-    if(jefeDeEquipo() && $('iRep') && $('iRep').value) return $('iRep').value;
-    return me.id;
-  }
   function actualizarHints(){ acInstancias.forEach(function(f){ try{ f(); }catch(e){} }); }
 
   function cargarCatalogo(){
     return api('GET','/api/clients').then(function(res){
       if(!res.ok) return;
       catalogo={
-        shared:res.data.shared||[], byUser:res.data.byUser||{},
+        clientes:res.data.clientes||res.data.shared||[],
         ownUsername:res.data.ownUsername||me.username,
         editable:!!res.data.editable, users:res.data.users||[],
-        updatedAt:res.data.updatedAt||0
+        total:res.data.total||0, updatedAt:res.data.updatedAt||0
       };
-      if(catalogo.editable && $('clientsModal')) llenarSelectCat();
+      if(catalogo.editable && $('clientsModal')) refrescarPanelCat();
       actualizarHints();
     });
   }
 
-  // Combobox reutilizable: filtra mientras se escribe, permite texto libre y avisa
-  // cuando el nombre no pertenece a la cartera (cliente potencial).
+  // Combobox: filtra por palabras mientras se escribe, permite texto libre y avisa
+  // de "cliente potencial" solo cuando no hay coincidencias o al salir del campo.
   function crearAutocomplete(input,menu,hint,obtenerLista){
     if(!input||!menu) return;
     var activo=-1, actuales=[];
     function cerrar(){ menu.classList.add('hide'); activo=-1; }
-    function actualizarHint(){
+    function actualizarHint(modo,coincidencias){
       if(!hint) return;
       var lista=obtenerLista()||[], val=normCliente(input.value);
       hint.classList.add('hide'); hint.classList.remove('info');
       if(!val) return;
       if(!lista.length){
-        hint.textContent='Aún no hay cartera cargada para este representante.';
+        hint.textContent='Aún no hay listado de clientes disponible.';
         hint.classList.add('info'); hint.classList.remove('hide'); return;
       }
-      if(!lista.some(function(c){ return normCliente(c)===val; })){
-        hint.innerHTML='No está en la cartera → se guardará como <b>cliente potencial</b>';
-        hint.classList.remove('hide');
-      }
+      if(lista.some(function(c){ return normCliente(c)===val; })) return;
+      if(modo==='typing' && coincidencias>0) return; // sigue escribiendo: no alarmar
+      hint.innerHTML='No está en el listado → se guardará como <b>cliente potencial</b>';
+      hint.classList.remove('hide');
     }
-    function seleccionar(nombre){ input.value=nombre; cerrar(); actualizarHint(); }
+    function seleccionar(nombre){ input.value=nombre; cerrar(); actualizarHint('blur'); }
     function pintar(){
-      var lista=obtenerLista()||[], q=normCliente(input.value);
-      var res=(q ? lista.filter(function(c){ return normCliente(c).indexOf(q)>=0; }) : lista.slice(0,60)).slice(0,60);
+      var lista=obtenerLista()||[], q=input.value, toks=tokensCliente(q);
+      var res=filtrarClientes(lista,q,80);
+      var total=toks.length?filtrarClientes(lista,q,5000).length:lista.length;
       actuales=res; activo=-1; menu.innerHTML='';
       if(!res.length){
         var e=document.createElement('div'); e.className='ac-empty';
-        e.textContent=lista.length?'Sin coincidencias en la cartera':'Cartera vacía: escriba el nombre del cliente';
+        e.textContent=lista.length?'Sin coincidencias en el listado':'Listado vacío: escriba el nombre del cliente';
         menu.appendChild(e);
       } else {
-        res.forEach(function(nombre,idx){
+        res.forEach(function(nombre){
           var it=document.createElement('div'); it.className='ac-item';
-          it.textContent=nombre;
+          it.appendChild(crearItemNombre(nombre,toks));
           it.addEventListener('mousedown',function(ev){ ev.preventDefault(); seleccionar(nombre); });
           menu.appendChild(it);
         });
+        var foot=document.createElement('div'); foot.className='ac-foot';
+        foot.textContent=(total>res.length?res.length+' de '+total+' resultados · ':'')
+          +'↑↓ elegir · Enter seleccionar · Esc cerrar';
+        menu.appendChild(foot);
       }
       menu.classList.remove('hide');
-      actualizarHint();
+      actualizarHint('typing',res.length);
     }
     function mover(d){
       if(menu.classList.contains('hide')){ pintar(); return; }
@@ -650,41 +710,62 @@
       }
       else if(e.key==='Escape') cerrar();
     });
-    input.addEventListener('blur',function(){ setTimeout(cerrar,140); });
-    acInstancias.push(actualizarHint);
+    input.addEventListener('blur',function(){
+      setTimeout(function(){ cerrar(); actualizarHint('blur'); },140);
+    });
+    acInstancias.push(function(){ actualizarHint('blur'); });
   }
 
   function initAutocompletes(){
-    crearAutocomplete($('iCliente'),$('clienteMenu'),$('clienteHint'),function(){
-      return carteraPara(ownerDelFormulario());
-    });
-    crearAutocomplete($('todoCliente'),$('todoClienteMenu'),$('todoClienteHint'),function(){
-      return carteraPara(($('todoAssignee')&&$('todoAssignee').value)||me.id);
-    });
+    // Mismo listado maestro para todos, tanto en actividades como en ToDo.
+    var lista=function(){ return catalogo.clientes||[]; };
+    crearAutocomplete($('iCliente'),$('clienteMenu'),$('clienteHint'),lista);
+    crearAutocomplete($('todoCliente'),$('todoClienteMenu'),$('todoClienteHint'),lista);
     if($('iRep')) $('iRep').addEventListener('change',actualizarHints);
     if($('todoAssignee')) $('todoAssignee').addEventListener('change',actualizarHints);
   }
 
-  // ---- Panel de administración de la cartera ----
-  function llenarSelectCat(){
-    var sel=$('catUser'); if(!sel) return;
-    var cur=sel.value;
-    var usuarios=(catalogo.users||[]).filter(function(u){ return u.role!=='admin'; });
-    sel.innerHTML='';
-    usuarios.forEach(function(u){
-      var o=document.createElement('option'); o.value=u.username;
-      o.textContent=u.name+' ('+u.username+')'; sel.appendChild(o);
-    });
-    if(cur && usuarios.some(function(u){return u.username===cur;})) sel.value=cur;
-    mostrarCarteraUsuario();
+  // ---- Panel de administración del listado maestro ----
+  function obtenerTrabajo(){
+    if(!catBulkDirty) return;
+    catTrabajo=$('catLista').value.split(/\r?\n/)
+      .map(function(s){ return s.trim(); }).filter(Boolean);
+    catBulkDirty=false;
   }
-  function mostrarCarteraUsuario(){
-    var un=$('catUser').value;
-    var lista=(catalogo.byUser&&catalogo.byUser[un])||[];
-    $('catLista').value=lista.join('\n');
-    $('catShared').value=(catalogo.shared||[]).join('\n');
-    $('catCount').textContent=lista.length+' cliente'+(lista.length===1?'':'s')+' en esta cartera · '
-      +(catalogo.shared||[]).length+' compartido'+((catalogo.shared||[]).length===1?'':'s');
+  function sincronizarBulk(){ $('catLista').value=catTrabajo.join('\n'); catBulkDirty=false; }
+  function actualizarCatCount(mostrados,total){
+    $('catCount').textContent=catTrabajo.length+' clientes en el listado maestro'
+      +(total>mostrados?' · '+total+' coinciden · mostrando '+mostrados:'');
+  }
+  function pintarCatItems(){
+    var box=$('catItems'); if(!box) return;
+    var q=$('catBuscar').value, toks=tokensCliente(q);
+    var res=filtrarClientes(catTrabajo,q,1000);
+    var total=toks.length?filtrarClientes(catTrabajo,q,5000).length:catTrabajo.length;
+    box.innerHTML='';
+    if(!res.length){
+      box.innerHTML='<div class="cat-item"><span class="muted">Sin coincidencias</span></div>';
+    }
+    res.forEach(function(nombre){
+      var row=document.createElement('div'); row.className='cat-item';
+      var txt=document.createElement('span'); txt.title=nombre;
+      txt.appendChild(crearItemNombre(nombre,toks));
+      var btn=document.createElement('button'); btn.className='ghost small'; btn.textContent='Quitar';
+      btn.onclick=function(){
+        obtenerTrabajo();
+        var k=normCliente(nombre);
+        catTrabajo=catTrabajo.filter(function(c){ return normCliente(c)!==k; });
+        sincronizarBulk(); pintarCatItems();
+      };
+      row.appendChild(txt); row.appendChild(btn); box.appendChild(row);
+    });
+    actualizarCatCount(res.length,total);
+  }
+  function refrescarPanelCat(){
+    catTrabajo=(catalogo.clientes||[]).slice();
+    sincronizarBulk();
+    if($('catBuscar')) $('catBuscar').value='';
+    pintarCatItems();
     renderPotenciales();
   }
   function renderPotenciales(){
@@ -704,18 +785,14 @@
       var x=map[k], row=document.createElement('div'); row.className='cat-row';
       var txt=document.createElement('span');
       txt.textContent=x.cliente+' · '+x.un+(x.n>1?' · '+x.n+' actividades':'');
-      var btn=document.createElement('button'); btn.className='ghost small'; btn.textContent='Agregar a cartera';
-      btn.disabled=(x.un==='—');
+      var btn=document.createElement('button'); btn.className='ghost small'; btn.textContent='Agregar al listado';
       btn.onclick=function(){
-        var byUser={};
-        Object.keys(catalogo.byUser||{}).forEach(function(u){ byUser[u]=(catalogo.byUser[u]||[]).slice(); });
-        var lista=byUser[x.un]||[];
-        if(lista.indexOf(x.cliente)<0) lista.push(x.cliente);
-        byUser[x.un]=lista;
-        api('PUT','/api/clients',{shared:catalogo.shared,byUser:byUser}).then(function(res){
+        var nueva=(catalogo.clientes||[]).slice(), kn=normCliente(x.cliente);
+        if(!nueva.some(function(c){ return normCliente(c)===kn; })) nueva.push(x.cliente);
+        api('PUT','/api/clients',{clientes:nueva}).then(function(res){
           if(!res.ok){ $('catErr').textContent=res.data.error||'No se pudo guardar'; return; }
           cargarCatalogo().then(function(){
-            // El servidor recalcula clientePotencial con la cartera nueva.
+            // El servidor recalcula clientePotencial con el listado nuevo.
             if(typeof loadRows==='function') loadRows();
           });
         });
@@ -724,27 +801,33 @@
     });
   }
   function guardarCartera(){
-    $('catErr').textContent='';
-    var byUser={};
-    Object.keys(catalogo.byUser||{}).forEach(function(k){ byUser[k]=(catalogo.byUser[k]||[]).slice(); });
-    var un=$('catUser').value;
-    if(un) byUser[un]=$('catLista').value.split(/\r?\n/);
-    return api('PUT','/api/clients',{
-      shared:$('catShared').value.split(/\r?\n/), byUser:byUser
-    }).then(function(res){
+    $('catErr').textContent=''; $('catErr').style.color='';
+    obtenerTrabajo();
+    return api('PUT','/api/clients',{clientes:catTrabajo}).then(function(res){
       if(!res.ok){ $('catErr').textContent=res.data.error||'No se pudo guardar'; return; }
-      $('catErr').style.color='var(--ok)'; $('catErr').textContent='Cartera guardada correctamente.';
+      $('catErr').style.color='var(--ok)'; $('catErr').textContent='Listado guardado correctamente.';
       cargarCatalogo().then(function(){ if(typeof loadRows==='function') loadRows(); });
       setTimeout(function(){ $('catErr').textContent=''; $('catErr').style.color=''; },2500);
     });
   }
+  $('catBuscar').addEventListener('input',pintarCatItems);
+  $('catLista').addEventListener('input',function(){ catBulkDirty=true; });
+  $('catAdd').onclick=function(){
+    var v=$('catNuevo').value.trim(); if(!v) return;
+    obtenerTrabajo();
+    var k=normCliente(v);
+    if(!catTrabajo.some(function(c){ return normCliente(c)===k; })) catTrabajo.push(v);
+    $('catNuevo').value=''; sincronizarBulk(); pintarCatItems();
+  };
+  $('catNuevo').addEventListener('keydown',function(e){
+    if(e.key==='Enter'){ e.preventDefault(); $('catAdd').click(); }
+  });
   $('clientsBtn').onclick=function(){
     $('catErr').textContent='';
     cargarCatalogo().then(function(){ $('clientsModal').classList.remove('hide'); });
   };
   $('closeClients').onclick=function(){ $('clientsModal').classList.add('hide'); };
   $('clientsModal').addEventListener('click',function(e){ if(e.target===$('clientsModal')) $('clientsModal').classList.add('hide'); });
-  $('catUser').addEventListener('change',mostrarCarteraUsuario);
   $('saveCat').onclick=guardarCartera;
 
   // ---- init ----

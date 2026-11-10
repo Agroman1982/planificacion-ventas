@@ -66,6 +66,10 @@
         }
         
         wrapper.appendChild(input);
+        // El campo "cliente" usa el listado maestro con filtrado por palabras.
+        if (field.name === 'cliente' && window.RainbowClientes) {
+          window.RainbowClientes.adjuntar(input);
+        }
         grid.appendChild(wrapper);
       });
       
