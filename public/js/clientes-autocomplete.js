@@ -53,6 +53,14 @@
   function totalCoincidencias(query) {
     return tokens(query).length ? filtrar(query, 5000).length : lista.length;
   }
+  // Sugerencias + nombre nuevo: si lo escrito no coincide exactamente con ningún
+  // cliente del listado, se ofrece usarlo como cliente nuevo (quedará potencial).
+  function opciones(query, limite) {
+    var res = filtrar(query, limite || 80);
+    var texto = String(query == null ? '' : query).replace(/\s+/g, ' ').trim();
+    var exacto = !!texto && lista.some(function (c) { return normalizar(c) === normalizar(texto); });
+    return { items: res, nuevo: (texto && !exacto) ? texto : '' };
+  }
   function resaltar(nombre, toks) {
     var frag = document.createDocumentFragment();
     nombre.split(/(\s+)/).forEach(function (parte) {
@@ -80,6 +88,12 @@
       '.ac-foot{padding:7px 11px;font-size:11px;color:#64748B;background:#F8FAFC;' +
       'border-top:1px solid #E2E8F0;position:sticky;bottom:0}' +
       '.ac-mark{background:#DCFCE7;border-radius:3px;font-weight:700}' +
+      '.ac-item.ac-nuevo{display:flex;gap:6px;align-items:center;background:#F0FDF4;color:#166534;' +
+      'font-weight:700;border-top:1px dashed #CBD5E1}' +
+      '.ac-item.ac-nuevo:hover,.ac-item.ac-nuevo.on{background:#DCFCE7}' +
+      '.ac-item.ac-nuevo .mas{display:inline-flex;align-items:center;justify-content:center;' +
+      'width:18px;height:18px;border-radius:50%;background:#15803D;color:#fff;font-size:13px;line-height:1}' +
+      '.ac-item.ac-nuevo .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
       '.ac-hint{font-size:12px;margin-top:5px;font-weight:600;color:#B45309}' +
       '.ac-hint.info{color:#64748B;font-weight:400}';
     var st = document.createElement('style');
@@ -126,32 +140,49 @@
       }
       if (lista.some(function (c) { return normalizar(c) === val; })) return;
       if (modo === 'typing' && n > 0) return;
-      hint.innerHTML = 'No está en el listado → se guardará como <b>cliente potencial</b>';
+      hint.innerHTML = 'No está en el listado → se guardará como <b>cliente potencial</b>. '
+        + 'Tu supervisor podrá agregarlo al listado.';
       hint.classList.remove('hide');
     }
     function pintar() {
       var q = input.value, toks = tokens(q);
-      var res = filtrar(q, 80);
+      var op = opciones(q, 80), res = op.items;
       var total = totalCoincidencias(q);
-      actuales = res; activo = -1; menu.innerHTML = '';
-      if (!res.length) {
+      actuales = res.slice(); activo = -1; menu.innerHTML = '';
+      if (!res.length && !op.nuevo) {
         var e = document.createElement('div'); e.className = 'ac-empty';
         e.textContent = lista.length ? 'Sin coincidencias en el listado' : 'Cargando listado…';
         menu.appendChild(e);
-      } else {
-        res.forEach(function (nombre) {
-          var it = document.createElement('div'); it.className = 'ac-item';
-          it.appendChild(resaltar(nombre, toks));
-          it.addEventListener('mousedown', function (ev) {
-            ev.preventDefault(); input.value = nombre; cerrar(); actualizarHint('blur');
-          });
-          menu.appendChild(it);
-        });
-        var foot = document.createElement('div'); foot.className = 'ac-foot';
-        foot.textContent = (total > res.length ? res.length + ' de ' + total + ' resultados · ' : '')
-          + '↑↓ elegir · Enter seleccionar · Esc cerrar';
-        menu.appendChild(foot);
       }
+      res.forEach(function (nombre) {
+        var it = document.createElement('div'); it.className = 'ac-item';
+        it.appendChild(resaltar(nombre, toks));
+        it.addEventListener('mousedown', function (ev) {
+          ev.preventDefault(); input.value = nombre; cerrar(); actualizarHint('blur');
+        });
+        menu.appendChild(it);
+      });
+      // Opción explícita para dar de alta el nombre escrito como cliente nuevo.
+      if (op.nuevo) {
+        actuales.push(op.nuevo);
+        var inuevo = document.createElement('div'); inuevo.className = 'ac-item ac-nuevo';
+        var mas = document.createElement('span'); mas.className = 'mas'; mas.textContent = '+';
+        var txt = document.createElement('span'); txt.className = 'txt';
+        txt.textContent = 'Usar «' + op.nuevo + '» como cliente nuevo';
+        inuevo.appendChild(mas); inuevo.appendChild(txt);
+        inuevo.title = 'No está en el listado: se guardará como cliente potencial';
+        inuevo.addEventListener('mousedown', function (ev) {
+          ev.preventDefault(); input.value = op.nuevo; cerrar(); actualizarHint('blur');
+        });
+        menu.appendChild(inuevo);
+        if (!res.length) { activo = 0; inuevo.classList.add('on'); } // Enter acepta lo escrito
+      }
+      var foot = document.createElement('div'); foot.className = 'ac-foot';
+      foot.textContent = (!res.length && op.nuevo)
+        ? 'Se guardará como cliente potencial · Enter para usar este nombre'
+        : ((total > res.length ? res.length + ' de ' + total + ' resultados · ' : '')
+           + '↑↓ elegir · Enter seleccionar · Esc cerrar');
+      menu.appendChild(foot);
       menu.classList.remove('hide');
       actualizarHint('typing', res.length);
     }
@@ -186,6 +217,7 @@
     cargar: cargar,
     adjuntar: adjuntar,
     filtrar: filtrar,
+    opciones: opciones,
     normalizar: normalizar,
     tokens: tokens,
     get lista() { return lista; }
