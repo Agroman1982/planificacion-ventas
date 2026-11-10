@@ -185,7 +185,7 @@
         <div class="who"><span class="role" id="whoRole"></span></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="ghost small hide" id="csvBtn">Exportar CSV</button>
+        <button class="ghost small hide" id="csvBtn">Exportar a Excel</button>
         <button class="ghost small hide" id="goalsBtn">Metas</button>
         <button class="ghost small hide" id="todoBtn">Asignar ToDo</button>
         <button class="ghost small hide" id="usersBtn">Gestionar vendedores</button>
@@ -464,6 +464,7 @@
 
 </div>
 
+<script src="/js/xlsx.js"></script>
 <script>
 (function(){
   var me=null, rows=[], ownerNames={}, estados=[], editingId=null, adminOwner='';
@@ -1292,25 +1293,43 @@
     });
   };
 
-  // ---- exportar CSV (admin) ----
+  // ---- exportar la programación a Excel (.xlsx real, con encabezados en celdas) ----
   $('csvBtn').onclick=function(){
-    // Usar el endpoint de exportación del módulo
-    var url = apiUrl('/export');
-    var q=[];
-    if($('fSemana').value.trim()) q.push('semana='+encodeURIComponent($('fSemana').value.trim()));
-    if($('fEstado').value) q.push('estado='+encodeURIComponent($('fEstado').value));
-    if(veVarios() && adminOwner) q.push('owner='+encodeURIComponent(adminOwner));
-    if(q.length) url += '?' + q.join('&');
-    
-    fetch(url, {credentials:'same-origin'}).then(function(r){
-      if(!r.ok) return alert('Error al exportar');
-      return r.blob().then(function(blob){
-        var a=document.createElement('a');
-        a.href=URL.createObjectURL(blob);
-        a.download='planificacion_'+currentModule+'.csv';
-        a.click();
-      });
+    if(typeof RainbowXLSX==='undefined'){ alert('No se pudo cargar el generador de Excel. Recarga la página con Ctrl+F5.'); return; }
+    if(!rows.length){ alert('No hay actividades para exportar con los filtros actuales.'); return; }
+    var cols=[
+      {label:'Fecha',width:14,type:'date'},
+      {label:'Semana',width:22,type:'text'},
+      {label:'Ubicación',width:22,type:'text'},
+      {label:'Cliente',width:34,type:'text'},
+      {label:'Producto a promocionar',width:28,type:'text'},
+      {label:'Trabajo a realizar',width:40,type:'text'},
+      {label:'Estado',width:16,type:'text'},
+      {label:'Monto programado (US$)',width:24,type:'money'},
+      {label:'Monto ejecutado (US$)',width:24,type:'money'},
+      {label:'% Cumplimiento',width:18,type:'pct'},
+      {label:'Resultado / Motivo',width:40,type:'text'},
+      {label:'Observaciones',width:36,type:'text'}
+    ];
+    var conVendedor = veVarios();
+    if(conVendedor) cols.unshift({label:'Vendedor',width:24,type:'text'});
+    var tP=0,tR=0;
+    var data=rows.slice().sort(function(a,b){
+      var da=a.dia||'', db=b.dia||'';
+      return da<db?-1:(da>db?1:0);
+    }).map(function(r){
+      var p=Number(r.ventaConcretar)||0, rl=Number(r.ventaRealizada)||0;
+      tP+=p; tR+=rl;
+      var base = conVendedor ? [ownerNames[r.ownerId]||'—'] : [];
+      return base.concat([r.dia||'', r.semana||'', r.ubicacion||'', r.cliente||'',
+        r.producto||'', r.trabajo||'', r.estado||'', p, rl, fracCumpl(rl,p),
+        r.resultado||'', r.observaciones||'']);
     });
+    var i = conVendedor ? 4 : 3; // columna "Cliente" (donde va la etiqueta TOTAL)
+    var total = cols.map(function(){ return ''; });
+    total[i]='TOTAL'; total[i+4]=tP; total[i+5]=tR; total[i+6]=fracCumpl(tR,tP);
+    RainbowXLSX.descargar('programacion_ventas_'+fechaHoy()+'.xlsx',
+      [{name:'Programación',cols:cols,rows:data,total:total}]);
   };
   // ---- vista Calendario ----
   function detailKV(k,v){ return '<div><div class="k">'+k+'</div><div class="v">'+esc(v||'—')+'</div></div>'; }
@@ -1596,42 +1615,89 @@
     $('resExport').onclick=exportResumen;
   }
 
+  // ---- Exportar Resumen a Excel -------------------------------------------
+  // Se genera un .xlsx real: encabezados en celdas separadas, números como números,
+  // fechas como fechas y porcentajes como porcentajes. Ya no depende del separador
+  // (; o ,) que tenga configurado Excel, que era lo que juntaba todo en una columna.
+  function fracCumpl(real, plan){
+    if(plan>0) return real/plan;
+    if(real>0) return 1;
+    return 0;
+  }
+  function fechaHoy(){ return new Date().toISOString().slice(0,10); }
+  function slug(s){
+    return (String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').toLowerCase()) || 'reporte';
+  }
+  var MONTO_PROG={label:'Monto programado (US$)',width:24,type:'money'};
+  var MONTO_EJEC={label:'Monto ejecutado (US$)',width:24,type:'money'};
+  var PCT_CUMP={label:'% Cumplimiento',width:18,type:'pct'};
+  var COL_CLIENTE={label:'Cliente',width:36,type:'text'};
+  var COL_FECHA={label:'Fecha',width:14,type:'date'};
+
   function exportResumen(){
-    var D=';'; // separador para Excel en español
-    function ef(n){ return (Number(n)||0).toFixed(2).replace('.',','); }
-    function pc(rl,pl){ var v=pl>0?rl/pl*100:(rl>0?100:0); return v.toFixed(1).replace('.',',')+'%'; }
-    var lines=[];
-    var weeks={}; rows.forEach(function(r){ if(r.semana) weeks[r.semana]=1; });
-    var weekList=Object.keys(weeks).sort();
-    var single=!veVarios()||(adminOwner!=='');
-    if(single && rows.length){
-      var vid=veVarios()?adminOwner:me.id;
-      var vname=veVarios()?(ownerNames[vid]||'—'):me.name;
-      var bc={};
-      rows.forEach(function(r){ var c=r.cliente||'—'; if(!bc[c]) bc[c]={n:0,p:0,rl:0}; bc[c].n++; bc[c].p+=Number(r.ventaConcretar||0); bc[c].rl+=Number(r.ventaRealizada)||0; });
-      lines.push('Resumen de '+vname);
-      lines.push('Cliente'+D+'Actividades'+D+'Planificado'+D+'Realizado'+D+'% Cumplimiento');
-      Object.keys(bc).sort().forEach(function(c){ var x=bc[c]; lines.push([c,x.n,ef(x.p),ef(x.rl),pc(x.rl,x.p)].join(D)); });
-    } else if(rows.length){
-      if(resMetric==='Comparativo'){
-        lines.push('Venta total por vendedor (Comparativo)');
-        lines.push('Vendedor'+D+'Planificado'+D+'Realizado'+D+'% Cumplimiento');
-        var aggP2={},aggR2={};
-        rows.forEach(function(r){ aggP2[r.ownerId]=aggP2[r.ownerId]||{}; aggP2[r.ownerId][r.semana]=(aggP2[r.ownerId][r.semana]||0)+Number(r.ventaConcretar||0); aggR2[r.ownerId]=aggR2[r.ownerId]||{}; aggR2[r.ownerId][r.semana]=(aggR2[r.ownerId][r.semana]||0)+Number(r.ventaRealizada||0); });
-        var gP=0,gR=0;
-        Object.keys(aggP2).sort().forEach(function(vid){ var p=0,r2=0; weekList.forEach(function(w){ p+=(aggP2[vid][w]||0); r2+=(aggR2[vid][w]||0); }); gP+=p; gR+=r2; lines.push([ownerNames[vid]||vid,ef(p),ef(r2),pc(r2,p)].join(D)); });
-        lines.push(['Total general',ef(gP),ef(gR),pc(gR,gP)].join(D));
-      } else {
-        var field=resMetric==='Realizado'?'ventaRealizada':'ventaConcretar';
-        lines.push('Venta total por vendedor y semana ('+resMetric+')');
-        lines.push(['Vendedor'].concat(weekList).concat(['Total mes']).join(D));
-        var agg3={}; rows.forEach(function(r){ agg3[r.ownerId]=agg3[r.ownerId]||{}; agg3[r.ownerId][r.semana]=(agg3[r.ownerId][r.semana]||0)+Number(r[field]||0); });
-        Object.keys(agg3).sort().forEach(function(vid){ var vt=0; var row=[ownerNames[vid]||vid]; weekList.forEach(function(w){ var s=agg3[vid][w]||0; vt+=s; row.push(ef(s)); }); row.push(ef(vt)); lines.push(row.join(D)); });
-      }
+    if(typeof RainbowXLSX==='undefined'){ alert('No se pudo cargar el generador de Excel. Recarga la página con Ctrl+F5.'); return; }
+    if(!rows.length){ alert('No hay actividades para exportar con los filtros actuales.'); return; }
+    var varios = veVarios() && adminOwner==='';
+    var nombreVend = function(r){ return ownerNames[r.ownerId] || '—'; };
+
+    // Hoja 1 "Detalle": una fila por actividad, con el cliente y su fecha.
+    var colsDet = varios
+      ? [{label:'Vendedor',width:24,type:'text'},COL_CLIENTE,COL_FECHA,MONTO_PROG,MONTO_EJEC,PCT_CUMP]
+      : [COL_CLIENTE,COL_FECHA,MONTO_PROG,MONTO_EJEC,PCT_CUMP];
+    var det=rows.slice().sort(function(a,b){
+      if(varios){ var na=nombreVend(a), nb=nombreVend(b); if(na!==nb) return na<nb?-1:1; }
+      var da=a.dia||'', db=b.dia||'';
+      if(da!==db) return da<db?-1:1;
+      return String(a.cliente||'').localeCompare(String(b.cliente||''));
+    });
+    var tP=0,tR=0;
+    var detRows=det.map(function(r){
+      var p=Number(r.ventaConcretar)||0, rl=Number(r.ventaRealizada)||0;
+      tP+=p; tR+=rl;
+      return (varios?[nombreVend(r)]:[]).concat([r.cliente||'—',r.dia||'',p,rl,fracCumpl(rl,p)]);
+    });
+    var detTotal=(varios?['']:[]).concat(['TOTAL','',tP,tR,fracCumpl(tR,tP)]);
+
+    // Hoja 2 "Por cliente": totales agrupados, sin números pegados al nombre.
+    var colsCli=(varios?[{label:'Vendedor',width:24,type:'text'}]:[])
+      .concat([COL_CLIENTE,{label:'Actividades',width:14,type:'number'},MONTO_PROG,MONTO_EJEC,PCT_CUMP]);
+    var grupos={};
+    rows.forEach(function(r){
+      var key=(varios?nombreVend(r)+'\u0001':'')+(r.cliente||'—');
+      if(!grupos[key]) grupos[key]={v:varios?nombreVend(r):'',c:r.cliente||'—',n:0,p:0,rl:0};
+      var g=grupos[key];
+      g.n++; g.p+=Number(r.ventaConcretar)||0; g.rl+=Number(r.ventaRealizada)||0;
+    });
+    var gN=0,gP=0,gR=0;
+    var cliRows=Object.keys(grupos).sort().map(function(k){
+      var g=grupos[k]; gN+=g.n; gP+=g.p; gR+=g.rl;
+      return (varios?[g.v]:[]).concat([g.c,g.n,g.p,g.rl,fracCumpl(g.rl,g.p)]);
+    });
+    var cliTotal=(varios?['']:[]).concat(['TOTAL',gN,gP,gR,fracCumpl(gR,gP)]);
+
+    var sheets=[
+      {name:'Detalle',cols:colsDet,rows:detRows,total:detTotal},
+      {name:'Por cliente',cols:colsCli,rows:cliRows,total:cliTotal}
+    ];
+
+    // Hoja 3 "Por vendedor" (solo cuando se ve el equipo completo)
+    if(varios){
+      var pv={};
+      rows.forEach(function(r){
+        var v=nombreVend(r); if(!pv[v]) pv[v]={p:0,rl:0};
+        pv[v].p+=Number(r.ventaConcretar)||0; pv[v].rl+=Number(r.ventaRealizada)||0;
+      });
+      var pvRows=Object.keys(pv).sort().map(function(v){
+        return [v,pv[v].p,pv[v].rl,fracCumpl(pv[v].rl,pv[v].p)];
+      });
+      sheets.push({name:'Por vendedor',
+        cols:[{label:'Vendedor',width:26,type:'text'},MONTO_PROG,MONTO_EJEC,PCT_CUMP],
+        rows:pvRows,total:['TOTAL',tP,tR,fracCumpl(tR,tP)]});
     }
-    if(!lines.length) return;
-    var blob=new Blob(['\uFEFF'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
-    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='resumen_'+currentModule+'.csv'; a.click();
+
+    var quien = varios ? 'equipo' : slug(veVarios()?(ownerNames[adminOwner]||'vendedor'):me.name);
+    RainbowXLSX.descargar('resumen_ventas_'+quien+'_'+fechaHoy()+'.xlsx', sheets);
   }
 
   function showRes(){

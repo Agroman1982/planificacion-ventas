@@ -106,7 +106,7 @@
     <div class="card">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
         <input id="searchInput" placeholder="Buscar..." style="flex:1">
-        <button class="ghost small" id="exportBtn">Exportar CSV</button>
+        <button class="ghost small" id="exportBtn">Exportar a Excel</button>
       </div>
       <div id="rowsList"></div>
       <div id="emptyMsg" class="center muted hide">Sin registros todavía.</div>
@@ -132,6 +132,7 @@
 
 <script src="js/modules.js"></script>
 <script src="js/renderer.js"></script>
+<script src="js/xlsx.js"></script>
 <script>
 (function(){
   var me=null, currentModule='ventas', moduleSchema=null, rows=[], ownerNames={}, editingId=null;
@@ -316,17 +317,33 @@
     });
   };
   
+  // Exporta un .xlsx real: cada campo del módulo va en su propia columna con encabezado.
   $('exportBtn').onclick=function(){
-    var url='/api/modules/'+currentModule+'/export';
-    fetch(url,{credentials:'same-origin'}).then(function(r){
-      if(!r.ok) return alert('Error al exportar');
-      return r.blob().then(function(blob){
-        var a=document.createElement('a');
-        a.href=URL.createObjectURL(blob);
-        a.download=currentModule+'_export.csv';
-        a.click();
+    if(typeof RainbowXLSX==='undefined'){ alert('No se pudo cargar el generador de Excel. Recarga la página con Ctrl+F5.'); return; }
+    if(!moduleSchema || !rows.length){ alert('No hay registros para exportar.'); return; }
+    var fields=moduleSchema.schema.fields||[];
+    var cols=[{label:'Vendedor',width:24,type:'text'}];
+    fields.forEach(function(f){
+      cols.push({
+        label:f.label,
+        width:(f.type==='textarea'?38:(f.type==='number'?22:20)),
+        type:(f.type==='date'?'date':(f.type==='number'?'number':'text'))
       });
     });
+    cols.push({label:'Creado',width:22,type:'text'},{label:'Actualizado',width:22,type:'text'});
+    var data=rows.map(function(r){
+      var arr=[ownerNames[r.ownerId]||'—'];
+      fields.forEach(function(f){
+        var v=r[f.name];
+        if(f.type==='number') arr.push(Number(v)||0);
+        else arr.push(v==null?'':String(v));
+      });
+      arr.push(r.createdAt?new Date(r.createdAt).toLocaleString('es-PE'):'');
+      arr.push(r.updatedAt?new Date(r.updatedAt).toLocaleString('es-PE'):'');
+      return arr;
+    });
+    RainbowXLSX.descargar(currentModule+'_'+new Date().toISOString().slice(0,10)+'.xlsx',
+      [{name:'Registros',cols:cols,rows:data}]);
   };
   
   // Search filter
