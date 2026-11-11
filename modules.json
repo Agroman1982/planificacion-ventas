@@ -28,15 +28,15 @@
     },
     {
       "id": "i-d",
-      "name": "Investigación y Desarrollo",
-      "description": "Proyectos de I+D, formulaciones, pruebas de campo y validaciones",
-      "icon": "🔬",
-      "version": "1.0",
+      "name": "Investigacion y Desarrollo",
+      "description": "Gestion de ensayos de campo: productos potenciales, muestras, protocolos, campos, evaluaciones e informes",
+      "icon": "\ud83d\udd2c",
+      "version": "2.0",
       "active": true,
       "createdAt": 1729443600000,
-      "updatedAt": 1729443600000,
+      "updatedAt": 1731318400000,
       "dataPath": "modules/i-d/data",
-      "allowedRoles": ["admin", "supervisor"],
+      "allowedRoles": ["admin", "supervisor", "coordinador", "retail", "kam"],
       "defaultView": "lista"
     }
   ],

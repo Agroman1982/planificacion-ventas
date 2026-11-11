@@ -411,6 +411,29 @@ function cleanRowInput(body, schema, ownerId, isAdmin) {
       case 'select':
         out[field.name] = (field.options && field.options.includes(val)) ? val : (field.default || field.options[0] || '');
         break;
+      case 'userselect':
+        // ID de usuario valido o vacio
+        if (typeof val === 'string' && val.trim()) {
+          const u = globalDb.users.find(x => x.id === val.trim());
+          out[field.name] = u ? u.id : '';
+        } else {
+          out[field.name] = '';
+        }
+        break;
+      case 'evaluations':
+        // Lista de evaluaciones: array de {tipo, fechaPlanificada, fechaReal, estado, observaciones}
+        if (Array.isArray(val)) {
+          out[field.name] = val.map(ev => ({
+            tipo: String(ev.tipo || '').slice(0, 100),
+            fechaPlanificada: String(ev.fechaPlanificada || '').slice(0, 10),
+            fechaReal: String(ev.fechaReal || '').slice(0, 10),
+            estado: ['Pendiente', 'Realizada', 'No realizada', 'Pospuesta'].includes(ev.estado) ? ev.estado : 'Pendiente',
+            observaciones: String(ev.observaciones || '').slice(0, 500)
+          }));
+        } else {
+          out[field.name] = [];
+        }
+        break;
       case 'textarea':
       case 'text':
       default:
@@ -563,6 +586,16 @@ const server = http.createServer(async (req, res) => {
       
       const schema = loadModuleSchema(moduleId);
       if (!schema) return sendJSON(res, 500, { error: 'Schema no encontrado' });
+      // Para modulos con campos userselect (ej: I+D), adjuntar la lista de usuarios
+      // para que el frontend pueda poblar los desplegables.
+      const fields = (schema.schema && schema.schema.fields) || schema.fields || [];
+      const hasUserSelect = fields.some(f => f.type === 'userselect');
+      if (hasUserSelect) {
+        const rtcUsers = globalDb.users
+          .filter(u => u.role === 'retail' || u.role === 'kam')
+          .map(u => ({ id: u.id, name: u.name, role: u.role }));
+        return sendJSON(res, 200, Object.assign({}, schema, { users: rtcUsers }));
+      }
       return sendJSON(res, 200, schema);
     }
 
@@ -579,26 +612,48 @@ const server = http.createServer(async (req, res) => {
       const moduleData = loadModuleData(moduleId);
       let rows = moduleData.rows || [];
 
-      // Visibilidad
-      const visibles = idsVisiblesPara(me);
-      if (visibles !== null) rows = rows.filter(r => visibles.indexOf(r.ownerId) >= 0);
+      // Visibilidad para I+D: admin, supervisor y coordinador ven todo.
+      // Los retail/kam ven solo los ensayos donde estan asignados como campo1Rtc o campo2Rtc.
+      if (moduleId === 'i-d') {
+        if (me.role !== 'admin' && me.role !== 'supervisor' && me.role !== 'coordinador') {
+          rows = rows.filter(r => r.campo1Rtc === me.id || r.campo2Rtc === me.id);
+        }
+      } else {
+        // Visibilidad estandar (jerarquia transitoria)
+        const visibles = idsVisiblesPara(me);
+        if (visibles !== null) rows = rows.filter(r => visibles.indexOf(r.ownerId) >= 0);
+      }
 
       // Filtros
-      const owner = url.searchParams.get('owner');
-      if (owner) {
-        if (visibles !== null && visibles.indexOf(owner) < 0) {
-          return sendJSON(res, 403, { error: 'No tienes permiso sobre ese vendedor' });
+      if (moduleId !== 'i-d') {
+        const owner = url.searchParams.get('owner');
+        if (owner) {
+          const visibles = idsVisiblesPara(me);
+          if (visibles !== null && visibles.indexOf(owner) < 0) {
+            return sendJSON(res, 403, { error: 'No tienes permiso sobre ese vendedor' });
+          }
+          rows = rows.filter(r => r.ownerId === owner);
         }
-        rows = rows.filter(r => r.ownerId === owner);
+        const semana = url.searchParams.get('semana');
+        if (semana) rows = rows.filter(r => (r.semana || '').toLowerCase().includes(semana.toLowerCase()));
+        const estado = url.searchParams.get('estado');
+        if (estado) rows = rows.filter(r => r.estado === estado);
+        const dia = url.searchParams.get('dia');
+        if (dia) rows = rows.filter(r => r.dia === dia);
+      } else {
+        // Filtros I+D
+        const estadoGral = url.searchParams.get('estado');
+        if (estadoGral) rows = rows.filter(r => r.estadoGeneral === estadoGral);
+        const tipo = url.searchParams.get('tipo');
+        if (tipo) rows = rows.filter(r => r.tipoProducto === tipo);
       }
-      const semana = url.searchParams.get('semana');
-      if (semana) rows = rows.filter(r => (r.semana || '').toLowerCase().includes(semana.toLowerCase()));
-      const estado = url.searchParams.get('estado');
-      if (estado) rows = rows.filter(r => r.estado === estado);
-      const dia = url.searchParams.get('dia');
-      if (dia) rows = rows.filter(r => r.dia === dia);
 
-      rows.sort((a, b) => (a.dia || '').localeCompare(b.dia || '') || a.createdAt - b.createdAt);
+      // Orden: I+D por fecha de instalacion o creacion; ventas por dia
+      if (moduleId === 'i-d') {
+        rows.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      } else {
+        rows.sort((a, b) => (a.dia || '').localeCompare(b.dia || '') || a.createdAt - b.createdAt);
+      }
 
       // "Cliente potencial" se recalcula al leer: el listado maestro es la fuente
       // de verdad. Así, cuando el admin agrega un cliente detectado, el badge
@@ -615,6 +670,13 @@ const server = http.createServer(async (req, res) => {
       
       const ownerNames = {};
       globalDb.users.forEach(u => { ownerNames[u.id] = u.name; });
+      // Para I+D, adjuntar la lista de RTCs para poblar userselect en el frontend
+      if (moduleId === 'i-d') {
+        const rtcUsers = globalDb.users
+          .filter(u => u.role === 'retail' || u.role === 'kam')
+          .map(u => ({ id: u.id, name: u.name, role: u.role }));
+        return sendJSON(res, 200, { rows, ownerNames, users: rtcUsers });
+      }
       return sendJSON(res, 200, { rows, ownerNames });
     }
 
@@ -625,6 +687,12 @@ const server = http.createServer(async (req, res) => {
       if (!mod.allowedRoles.includes(me.role)) return sendJSON(res, 403, { error: 'No tienes acceso a este módulo' });
 
       const schema = loadModuleSchema(moduleId);
+      // Permisos de creacion por modulo (si el schema los define)
+      const createRoles = schema && schema.schema && schema.schema.permissions && schema.schema.permissions.create;
+      if (Array.isArray(createRoles) && !createRoles.includes(me.role)) {
+        return sendJSON(res, 403, { error: 'No tienes permiso para crear registros en este módulo' });
+      }
+
       const body = await readBody(req);
       
       let ownerId = me.id;
@@ -660,15 +728,29 @@ const server = http.createServer(async (req, res) => {
       const moduleData = loadModuleData(moduleId);
       const row = moduleData.rows.find(r => r.id === rowId);
       if (!row) return sendJSON(res, 404, { error: 'No encontrado' });
-      if (!puedeTocarFila(me, row)) return sendJSON(res, 403, { error: 'No tienes permiso sobre esta fila' });
+
+      // Permisos por modulo (I+D): admin, supervisor, coordinador pueden editar/borrar.
+      // RTCs pueden ver pero no editar.
+      const schema = loadModuleSchema(moduleId);
+      const editRoles = schema && schema.schema && schema.schema.permissions && schema.schema.permissions.edit;
+      const deleteRoles = schema && schema.schema && schema.schema.permissions && schema.schema.permissions.delete;
+      if (Array.isArray(editRoles)) {
+        const canEdit = editRoles.includes(me.role) || (editRoles.includes('owner') && row.ownerId === me.id);
+        if (!canEdit) return sendJSON(res, 403, { error: 'No tienes permiso para editar este registro' });
+      } else {
+        if (!puedeTocarFila(me, row)) return sendJSON(res, 403, { error: 'No tienes permiso sobre esta fila' });
+      }
 
       if (method === 'DELETE') {
+        if (Array.isArray(deleteRoles)) {
+          const canDelete = deleteRoles.includes(me.role) || (deleteRoles.includes('owner') && row.ownerId === me.id);
+          if (!canDelete) return sendJSON(res, 403, { error: 'No tienes permiso para eliminar este registro' });
+        }
         moduleData.rows = moduleData.rows.filter(r => r.id !== row.id);
         saveModuleData(moduleId, moduleData);
         return sendJSON(res, 200, { ok: true });
       }
 
-      const schema = loadModuleSchema(moduleId);
       const body = await readBody(req);
       const upd = cleanRowInput(body, schema, row.ownerId, me.role === 'admin');
       Object.assign(row, upd, { updatedAt: Date.now() });

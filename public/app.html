@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#1B755E">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
 <style>
   :root{ --bg:#1B755E; --card:#fff; --ink:#0F172A; --muted:#334155; --line:#B9C6C2; --brand:#1D4ED8; --brand-d:#1A45B8; --ok:#15803D; --warn:#B45309; --bad:#B91C1C; }
   *{box-sizing:border-box}
@@ -44,6 +45,16 @@
   .module-icon{font-size:32px;margin-bottom:8px}
   .module-name{font-size:16px;font-weight:700;margin-bottom:4px}
   .module-desc{font-size:13px;color:var(--muted)}
+  .tabs{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}
+  .tab{padding:8px 14px;border-radius:10px 10px 0 0;background:#E9EDF4;color:var(--muted);font-weight:600;font-size:13px;cursor:pointer;border:1px solid var(--line);border-bottom:none}
+  .tab.active{background:var(--card);color:var(--ink);border-bottom:1px solid var(--card);position:relative;z-index:1}
+  .eval-editor{border:1px solid var(--line);border-radius:10px;padding:12px;background:#f8f9fa}
+  .eval-list{margin-bottom:4px}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:8px}
+  .cal-day{background:#f8f9fa;border-radius:8px;min-height:50px;padding:4px;font-size:11px}
+  .cal-day.today{border:2px solid var(--brand)}
+  .cal-day.weekend{background:#fce4ec}
+  .cal-chip{display:inline-block;padding:2px 6px;border-radius:6px;margin:1px;font-size:10px;color:#fff;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -53,15 +64,15 @@
   <div id="login" class="login">
     <div class="card">
       <h1>Rainbow Platform</h1>
-      <p class="muted" style="margin:6px 0 16px">Inicia sesión para acceder a los módulos.</p>
+      <p class="muted" style="margin:6px 0 16px">Inicia sesion para acceder a los modulos.</p>
       <div class="grid">
         <div style="grid-column:1/-1">
           <label>Usuario</label>
           <input id="lu" autocomplete="username" placeholder="hector">
         </div>
         <div style="grid-column:1/-1">
-          <label>Contraseña</label>
-          <input id="lp" type="password" autocomplete="current-password" placeholder="••••••">
+          <label>Contrase&ntilde;a</label>
+          <input id="lp" type="password" autocomplete="current-password" placeholder="------">
         </div>
       </div>
       <button id="lbtn" style="width:100%;margin-top:14px">Entrar</button>
@@ -73,13 +84,13 @@
   <div id="moduleSelector" class="hide">
     <div class="topbar">
       <div>
-        <div style="font-weight:700;font-size:18px" id="whoName">—</div>
+        <div style="font-weight:700;font-size:18px" id="whoName">&mdash;</div>
         <div style="font-size:13px;color:var(--muted)" id="whoRole"></div>
       </div>
       <button class="ghost small" id="logoutBtn">Salir</button>
     </div>
     <div class="card">
-      <h2>Selecciona un módulo</h2>
+      <h2>Selecciona un modulo</h2>
       <div class="module-grid" id="moduleGrid"></div>
     </div>
   </div>
@@ -88,28 +99,26 @@
   <div id="moduleView" class="hide">
     <div class="topbar">
       <div>
-        <div style="font-weight:700;font-size:18px" id="moduleTitle">—</div>
+        <div style="font-weight:700;font-size:18px" id="moduleTitle">&mdash;</div>
         <div style="font-size:13px;color:var(--muted)" id="moduleSubtitle"></div>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="ghost small" id="backBtn">← Volver</button>
+        <button class="ghost small" id="backBtn">&larr; Volver</button>
         <button class="ghost small" id="logoutBtn2">Salir</button>
       </div>
     </div>
 
+    <!-- Tabs de vistas -->
+    <div id="viewTabs" class="tabs"></div>
+
+    <!-- Vista activa -->
+    <div id="viewContainer"></div>
+
+    <!-- Formulario (siempre visible o colapsable) -->
     <div class="card" id="formCard">
       <h2 id="formTitle">Nuevo registro</h2>
       <div id="dynamicForm"></div>
       <button id="saveBtn" style="width:100%;margin-top:12px">Guardar</button>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
-        <input id="searchInput" placeholder="Buscar..." style="flex:1">
-        <button class="ghost small" id="exportBtn">Exportar a Excel</button>
-      </div>
-      <div id="rowsList"></div>
-      <div id="emptyMsg" class="center muted hide">Sin registros todavía.</div>
     </div>
   </div>
 
@@ -136,8 +145,9 @@
 <script src="js/xlsx.js"></script>
 <script>
 (function(){
-  var me=null, currentModule='ventas', moduleSchema=null, rows=[], ownerNames={}, editingId=null;
-  
+  var me=null, currentModule='ventas', moduleSchema=null, rows=[], ownerNames={}, moduleUsers=[], editingId=null;
+  var currentView='lista';
+
   function api(method, path, body){
     return fetch(path,{method:method,headers:{'Content-Type':'application/json'},
       credentials:'same-origin',body:body?JSON.stringify(body):undefined}).then(function(r){
@@ -146,11 +156,11 @@
   }
   function $(id){return document.getElementById(id);}
   function esc(s){return s==null?'':String(s);}
-  
+
   // Login
   $('lbtn').onclick=doLogin;
   $('lp').addEventListener('keydown',function(e){ if(e.key==='Enter') doLogin(); });
-  
+
   function doLogin(){
     $('lerr').textContent='';
     api('POST','/api/login',{username:$('lu').value.trim(),password:$('lp').value}).then(function(res){
@@ -158,17 +168,17 @@
       else $('lerr').textContent=res.data.error||'Error de login';
     });
   }
-  
+
   function start(user){
     me=user;
     $('login').classList.add('hide');
     $('moduleSelector').classList.remove('hide');
     $('whoName').textContent=me.name;
-    $('whoRole').textContent=me.role==='admin'?'Administrador':me.role;
+    $('whoRole').textContent=me.role==='admin'?'Administrador':(me.role==='supervisor'?'Supervisor':(me.role==='coordinador'?'Coordinador':me.role));
     if(window.RainbowClientes) RainbowClientes.cargar(); // listado maestro de clientes
     loadModules();
   }
-  
+
   function loadModules(){
     api('GET','/api/modules').then(function(res){
       if(!res.ok) return;
@@ -178,61 +188,265 @@
       modules.forEach(function(mod){
         var card=document.createElement('div');
         card.className='module-card';
-        card.innerHTML='<div class="module-icon">'+esc(mod.icon)+'</div><div class="module-name">'+esc(mod.name)+'</div><div class="module-desc">'+esc(mod.description)+'</div>';
+        card.innerHTML='<div class="module-icon">'+esc(mod.icon)+'</div><div class="module-name">'+esc(mod.name)+'</div><div class="module-desc">'+esc(mod.description||'')+'</div>';
         card.onclick=function(){ openModule(mod.id); };
         grid.appendChild(card);
       });
     });
   }
-  
+
   function openModule(moduleId){
     currentModule=moduleId;
     $('moduleSelector').classList.add('hide');
     $('moduleView').classList.remove('hide');
-    
+
     api('GET','/api/modules/'+moduleId+'/schema').then(function(res){
       if(res.ok){
         moduleSchema=res.data;
         $('moduleTitle').textContent=moduleSchema.name;
-        $('moduleSubtitle').textContent='Módulo activo';
+        $('moduleSubtitle').textContent='Modulo activo';
+        // Cargar usuarios para userselect
+        if(res.data.users && Array.isArray(res.data.users)){
+          moduleUsers=res.data.users;
+          if(window.ModuleRenderer) ModuleRenderer.users=moduleUsers;
+        }
+        // Determinar vista inicial
+        var views=moduleSchema.schema.views||{};
+        var firstView='lista';
+        for(var k in views){ if(views[k].enabled){ firstView=k; break; } }
+        currentView=firstView;
+        renderTabs();
         renderForm();
         loadRows();
       }
     });
   }
-  
+
+  function renderTabs(){
+    var views=moduleSchema.schema.views||{};
+    var tabsDiv=$('viewTabs');
+    tabsDiv.innerHTML='';
+    for(var viewKey in views){
+      if(!views[viewKey].enabled) continue;
+      (function(key, v){
+        var tab=document.createElement('div');
+        tab.className='tab'+(key===currentView?' active':'');
+        tab.textContent=v.icon? v.icon+' '+v.label : v.label;
+        tab.onclick=function(){
+          currentView=key;
+          renderTabs();
+          renderCurrentView();
+        };
+        tabsDiv.appendChild(tab);
+      })(viewKey, views[viewKey]);
+    }
+  }
+
   function renderForm(){
     ModuleRenderer.renderForm('dynamicForm', moduleSchema, {}, me.role==='admin');
   }
-  
+
   function loadRows(){
     api('GET','/api/modules/'+currentModule+'/rows').then(function(res){
       if(!res.ok) return;
       rows=res.data.rows||[];
       ownerNames=res.data.ownerNames||{};
-      renderRows();
+      if(res.data.users && Array.isArray(res.data.users)){
+        moduleUsers=res.data.users;
+        if(window.ModuleRenderer) ModuleRenderer.users=moduleUsers;
+      }
+      renderCurrentView();
     });
   }
-  
-  function renderRows(){
-    var list=$('rowsList');
-    list.innerHTML='';
-    $('emptyMsg').classList.toggle('hide', rows.length>0);
-    
+
+  function renderCurrentView(){
+    var container=$('viewContainer');
+    container.innerHTML='';
+
+    // Barra de herramientas (buscar + exportar)
+    var toolbar=document.createElement('div');
+    toolbar.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap';
+    var searchInput=document.createElement('input');
+    searchInput.placeholder='Buscar...';
+    searchInput.style.flex='1';
+    searchInput.id='searchInput';
+    toolbar.appendChild(searchInput);
+
+    // Botones de exportacion
+    var exportBtn=document.createElement('button');
+    exportBtn.className='ghost small';
+    exportBtn.textContent='Exportar a Excel';
+    exportBtn.onclick=exportToList;
+    toolbar.appendChild(exportBtn);
+
+    if(currentModule==='i-d'){
+      var cronBtn=document.createElement('button');
+      cronBtn.className='ghost small';
+      cronBtn.textContent='Cronograma Excel';
+      cronBtn.onclick=exportCronograma;
+      toolbar.appendChild(cronBtn);
+
+      var compBtn=document.createElement('button');
+      compBtn.className='ghost small';
+      compBtn.textContent='Cumplimiento';
+      compBtn.onclick=exportCumplimiento;
+      toolbar.appendChild(compBtn);
+
+      var resBtn=document.createElement('button');
+      resBtn.className='ghost small';
+      resBtn.textContent='Resumen ejec.';
+      resBtn.onclick=exportResumenEjec;
+      toolbar.appendChild(resBtn);
+    }
+
+    container.appendChild(toolbar);
+
+    // Contenedor de la vista
+    var viewDiv=document.createElement('div');
+    viewDiv.id='viewContent';
+
+    if(currentView==='lista'){
+      renderListView(viewDiv);
+    } else if(currentView==='calendario'){
+      renderCalendarView(viewDiv);
+    } else if(currentView==='cronograma'){
+      var cron=ModuleRenderer.renderCronograma(rows, moduleSchema, ownerNames);
+      viewDiv.appendChild(cron);
+    } else if(currentView==='dashboard'){
+      var dash=ModuleRenderer.renderDashboard(rows, moduleSchema, ownerNames);
+      viewDiv.appendChild(dash);
+    }
+
+    container.appendChild(viewDiv);
+
+    // Search filter
+    searchInput.addEventListener('input',function(){
+      var term=searchInput.value.toLowerCase();
+      var cards=viewDiv.querySelectorAll('.act');
+      cards.forEach(function(card){
+        var text=card.textContent.toLowerCase();
+        card.style.display=text.includes(term)?'':'none';
+      });
+    });
+  }
+
+  function renderListView(container){
+    if(!rows.length){
+      container.innerHTML='<div class="muted" style="text-align:center;padding:20px">Sin registros todavia.</div>';
+      return;
+    }
     rows.forEach(function(row){
       var card=ModuleRenderer.renderCard(row, moduleSchema, ownerNames, me);
       card.onclick=function(){ openDetail(row.id); };
-      list.appendChild(card);
+      container.appendChild(card);
     });
   }
-  
+
+  function renderCalendarView(container){
+    var states=moduleSchema.schema.states||{};
+    var stateColors=states.colors||{};
+    var stateField=states.field||'estado';
+    var dateField='fechaInstalacion';
+
+    // Determinar semana actual
+    var today=new Date();
+    var dayOfWeek=today.getDay()||7;
+    var monday=new Date(today.getFullYear(),today.getMonth(),today.getDate()-(dayOfWeek-1));
+
+    var calDiv=document.createElement('div');
+    calDiv.className='card';
+
+    var nav=document.createElement('div');
+    nav.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px';
+    var prevBtn=document.createElement('button');
+    prevBtn.className='ghost small';
+    prevBtn.textContent='\u2190 Anterior';
+    var weekLabel=document.createElement('div');
+    weekLabel.style.fontWeight='700';
+    var nextBtn=document.createElement('button');
+    nextBtn.className='ghost small';
+    nextBtn.textContent='Siguiente \u2192';
+    nav.appendChild(prevBtn);
+    nav.appendChild(weekLabel);
+    nav.appendChild(nextBtn);
+    calDiv.appendChild(nav);
+
+    var gridEl=document.createElement('div');
+    gridEl.className='cal-grid';
+    calDiv.appendChild(gridEl);
+    container.appendChild(calDiv);
+
+    var calOffset=0;
+    function renderCal(){
+      gridEl.innerHTML='';
+      var refMonday=new Date(monday.getFullYear(),monday.getMonth(),monday.getDate()+calOffset*7);
+      var refSunday=new Date(refMonday.getFullYear(),refMonday.getMonth(),refMonday.getDate()+6);
+      var monthNames=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      weekLabel.textContent='Semana: '+refMonday.getDate()+' '+monthNames[refMonday.getMonth()]+' - '+refSunday.getDate()+' '+monthNames[refSunday.getMonth()]+' '+refSunday.getFullYear();
+
+      var dayNames=['Lun','Mar','Mie','Jue','Vie','Sab','Dom'];
+      dayNames.forEach(function(dn){
+        var dh=document.createElement('div');
+        dh.style.cssText='text-align:center;font-weight:700;font-size:11px;color:var(--muted);padding:4px';
+        dh.textContent=dn;
+        gridEl.appendChild(dh);
+      });
+
+      for(var i=0;i<7;i++){
+        var d=new Date(refMonday.getFullYear(),refMonday.getMonth(),refMonday.getDate()+i);
+        var iso=d.toISOString().slice(0,10);
+        var dayDiv=document.createElement('div');
+        dayDiv.className='cal-day'+(iso===today.toISOString().slice(0,10)?' today':'')+(i>=5?' weekend':'');
+        var dayNum=document.createElement('div');
+        dayNum.style.cssText='font-weight:700;font-size:10px;color:var(--muted)';
+        dayNum.textContent=d.getDate();
+        dayDiv.appendChild(dayNum);
+
+        // Encontrar filas para este dia
+        rows.forEach(function(row){
+          var chips=[];
+          // Fecha instalacion
+          if(row.fechaInstalacion===iso) chips.push({label:row.producto||'',color:stateColors[row[stateField]]||'#1976d2'});
+          // Evaluaciones
+          if(Array.isArray(row.evaluaciones)){
+            row.evaluaciones.forEach(function(ev){
+              var evDate=ev.fechaReal||ev.fechaPlanificada;
+              if(evDate===iso){
+                var evColor=ev.estado==='Realizada'?'#2e7d32':(ev.estado==='No realizada'?'#c62828':'#666');
+                chips.push({label:(row.producto||'')+' '+esc(ev.tipo||''),color:evColor});
+              }
+            });
+          }
+          // Fecha informe
+          if(row.fechaInformePlanificada===iso){
+            chips.push({label:(row.producto||'')+' Informe',color:'#7b1fa2'});
+          }
+          chips.forEach(function(chip){
+            var chipEl=document.createElement('span');
+            chipEl.className='cal-chip';
+            chipEl.style.background=chip.color;
+            chipEl.textContent=chip.label;
+            chipEl.title=chip.label;
+            chipEl.style.cursor='pointer';
+            chipEl.onclick=function(){ openDetail(row.id); };
+            dayDiv.appendChild(chipEl);
+          });
+        });
+        gridEl.appendChild(dayDiv);
+      }
+    }
+    prevBtn.onclick=function(){ calOffset--; renderCal(); };
+    nextBtn.onclick=function(){ calOffset++; renderCal(); };
+    renderCal();
+  }
+
   function openDetail(rowId){
     var row=rows.find(function(r){ return r.id===rowId; });
     if(!row) return;
-    
+
     var content=$('detailContent');
     content.innerHTML='';
-    
+
     moduleSchema.schema.fields.forEach(function(field){
       var div=document.createElement('div');
       div.style.marginBottom='10px';
@@ -241,59 +455,81 @@
       label.textContent=field.label;
       var value=document.createElement('div');
       value.className='v';
-      if(field.type==='number'){
+
+      if(field.type==='evaluations'){
+        if(Array.isArray(row[field.name]) && row[field.name].length){
+          value.innerHTML='';
+          row[field.name].forEach(function(ev,i){
+            var evDiv=document.createElement('div');
+            evDiv.style.cssText='padding:8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;font-size:13px';
+            var estadoColor=ev.estado==='Realizada'?'#2e7d32':(ev.estado==='No realizada'?'#c62828':(ev.estado==='Pospuesta'?'#fbc02d':'#666'));
+            evDiv.innerHTML='<b>'+esc(ev.tipo||'Evaluacion '+(i+1))+'</b>'
+              +' <span class="badge" style="background:'+estadoColor+'">'+esc(ev.estado)+'</span>'
+              +'<br>Planif.: '+esc(ev.fechaPlanificada||'—')+' | Real.: '+esc(ev.fechaReal||'—');
+            if(ev.observaciones) evDiv.innerHTML+='<div class="muted" style="margin-top:4px">'+esc(ev.observaciones)+'</div>';
+            value.appendChild(evDiv);
+          });
+        } else {
+          value.textContent='Sin evaluaciones definidas';
+        }
+      } else if(field.type==='userselect'){
+        var u=moduleUsers.find(function(x){ return x.id===row[field.name]; });
+        value.textContent=u?u.name:'\u2014';
+      } else if(field.type==='number'){
         value.innerHTML='<span class="money">US$ '+Number(row[field.name]||0).toLocaleString('en-US',{minimumFractionDigits:2})+'</span>';
       } else {
-        value.textContent=row[field.name]||'—';
+        value.textContent=row[field.name]||'\u2014';
       }
       div.appendChild(label);
       div.appendChild(value);
       content.appendChild(div);
     });
-    
+
+    // Mostrar permisos de edicion
+    var canEdit=(me.role==='admin'||me.role==='supervisor'||me.role==='coordinador');
+    $('editBtn').style.display=canEdit?'':'none';
+    var canDelete=(me.role==='admin'||me.role==='supervisor');
+    $('deleteBtn').style.display=canDelete?'':'none';
+
     $('detailModal').classList.remove('hide');
     editingId=rowId;
   }
-  
+
   // Event handlers
   $('logoutBtn').onclick=$('logoutBtn2').onclick=function(){
     api('POST','/api/logout').then(function(){ location.reload(); });
   };
-  
+
   $('backBtn').onclick=function(){
     $('moduleView').classList.add('hide');
     $('moduleSelector').classList.remove('hide');
     currentModule='ventas';
     moduleSchema=null;
   };
-  
+
   $('closeDetail').onclick=function(){
     $('detailModal').classList.add('hide');
     editingId=null;
   };
-  
+
   $('saveBtn').onclick=function(){
     var values=ModuleRenderer.getFormValues(moduleSchema);
     values.ownerId=me.id;
-    
+
     var url='/api/modules/'+currentModule+'/rows';
     var method='POST';
     if(editingId){
       url+='/'+editingId;
       method='PUT';
     }
-    
+
     api(method, url, values).then(function(res){
       if(res.ok){
-        var row=res.data&&res.data.row;
-        var eraNuevo=!!(row&&row.clientePotencial);
         loadRows();
         renderForm();
         editingId=null;
         $('formTitle').textContent='Nuevo registro';
-        // Confirmación: el nombre escrito no estaba en el listado maestro.
-        if(eraNuevo) toast('Cliente nuevo guardado como potencial: '+values.cliente
-          +'. Tu supervisor puede agregarlo al listado.');
+        toast('Registro guardado correctamente.');
       } else {
         alert(res.data.error||'Error al guardar');
       }
@@ -311,78 +547,231 @@
       document.body.appendChild(el);
     }
     el.textContent=texto; el.style.display='block';
-    clearTimeout(el._t); el._t=setTimeout(function(){ el.style.display='none'; },4500);
+    clearTimeout(el._t); el._t=setTimeout(function(){ el.style.display='none'; },3500);
   }
-  
+
   $('editBtn').onclick=function(){
     if(!editingId) return;
     var row=rows.find(function(r){ return r.id===editingId; });
     if(!row) return;
-    
+
     $('detailModal').classList.add('hide');
     $('formTitle').textContent='Editar registro';
     ModuleRenderer.renderForm('dynamicForm', moduleSchema, row, me.role==='admin');
     window.scrollTo(0,0);
   };
-  
+
   $('deleteBtn').onclick=function(){
     if(!editingId) return;
-    if(!confirm('¿Eliminar este registro?')) return;
-    
+    if(!confirm('Eliminar este registro?')) return;
+
     api('DELETE','/api/modules/'+currentModule+'/rows/'+editingId).then(function(res){
       if(res.ok){
         loadRows();
         $('detailModal').classList.add('hide');
         editingId=null;
+      } else {
+        alert(res.data.error||'Error al eliminar');
       }
     });
   };
-  
-  // Exporta un .xlsx real: cada campo del módulo va en su propia columna con encabezado.
-  $('exportBtn').onclick=function(){
-    if(typeof RainbowXLSX==='undefined'){ alert('No se pudo cargar el generador de Excel. Recarga la página con Ctrl+F5.'); return; }
+
+  // ---- Exportaciones ----
+
+  // Lista a Excel (schema-driven)
+  function exportToList(){
+    if(typeof RainbowXLSX==='undefined'){ alert('No se pudo cargar el generador de Excel. Recarga con Ctrl+F5.'); return; }
     if(!moduleSchema || !rows.length){ alert('No hay registros para exportar.'); return; }
     var fields=moduleSchema.schema.fields||[];
-    var cols=[{label:'Vendedor',width:24,type:'text'}];
+    var cols=[{label:'Creado por',width:24,type:'text'}];
     fields.forEach(function(f){
       cols.push({
         label:f.label,
-        width:(f.type==='textarea'?38:(f.type==='number'?22:20)),
+        width:(f.type==='textarea'?38:(f.type==='evaluations'?40:(f.type==='number'?22:20))),
         type:(f.type==='date'?'date':(f.type==='number'?'number':'text'))
       });
     });
-    cols.push({label:'Creado',width:22,type:'text'},{label:'Actualizado',width:22,type:'text'});
     var data=rows.map(function(r){
-      var arr=[ownerNames[r.ownerId]||'—'];
+      var arr=[ownerNames[r.ownerId]||'--'];
       fields.forEach(function(f){
-        var v=r[f.name];
-        if(f.type==='number') arr.push(Number(v)||0);
-        else arr.push(v==null?'':String(v));
+        if(f.type==='evaluations'){
+          var evals=r[f.name];
+          if(Array.isArray(evals)&&evals.length){
+            arr.push(evals.map(function(ev){ return (ev.tipo||'')+' ['+ev.estado+'] planif:'+ev.fechaPlanificada+' real:'+ev.fechaReal+(ev.observaciones?' - '+ev.observaciones:''); }).join('\n'));
+          } else arr.push('');
+        } else if(f.type==='userselect'){
+          var u=moduleUsers.find(function(x){ return x.id===r[f.name]; });
+          arr.push(u?u.name:'');
+        } else if(f.type==='number'){
+          arr.push(Number(r[f.name])||0);
+        } else {
+          arr.push(r[f.name]==null?'':String(r[f.name]));
+        }
       });
-      arr.push(r.createdAt?new Date(r.createdAt).toLocaleString('es-PE'):'');
-      arr.push(r.updatedAt?new Date(r.updatedAt).toLocaleString('es-PE'):'');
       return arr;
     });
-    RainbowXLSX.descargar(currentModule+'_'+new Date().toISOString().slice(0,10)+'.xlsx',
+    RainbowXLSX.descargar(currentModule+'_lista_'+new Date().toISOString().slice(0,10)+'.xlsx',
       [{name:'Registros',cols:cols,rows:data}]);
-  };
-  
-  // Search filter
-  $('searchInput').addEventListener('input',function(){
-    var term=$('searchInput').value.toLowerCase();
-    var cards=document.querySelectorAll('.act');
-    cards.forEach(function(card){
-      var text=card.textContent.toLowerCase();
-      card.style.display=text.includes(term)?'':'none';
+  }
+
+  // Cronograma a Excel
+  function exportCronograma(){
+    if(typeof RainbowXLSX==='undefined'){ alert('No se pudo cargar el generador de Excel.'); return; }
+    if(!rows.length){ alert('No hay registros.'); return; }
+    var cols=[
+      {label:'Producto',width:28,type:'text'},
+      {label:'Tipo',width:16,type:'text'},
+      {label:'Estado',width:20,type:'text'},
+      {label:'Muestras',width:14,type:'date'},
+      {label:'Instalacion',width:14,type:'date'},
+      {label:'Eval 1',width:14,type:'date'},
+      {label:'Eval 2',width:14,type:'date'},
+      {label:'Eval 3',width:14,type:'date'},
+      {label:'Eval 4',width:14,type:'date'},
+      {label:'Informe',width:14,type:'date'},
+      {label:'Campo 1 RTC',width:18,type:'text'},
+      {label:'Campo 2 RTC',width:18,type:'text'}
+    ];
+    var data=rows.map(function(r){
+      var evalDates=['','','',''];
+      if(Array.isArray(r.evaluaciones)){
+        r.evaluaciones.forEach(function(ev,i){
+          if(i<4) evalDates[i]=ev.fechaReal||ev.fechaPlanificada||'';
+        });
+      }
+      var u1=moduleUsers.find(function(x){ return x.id===r.campo1Rtc; });
+      var u2=moduleUsers.find(function(x){ return x.id===r.campo2Rtc; });
+      return [
+        r.producto||'', r.tipoProducto||'', r.estadoGeneral||'',
+        r.fechaMuestras||'', r.fechaInstalacion||'',
+        evalDates[0], evalDates[1], evalDates[2], evalDates[3],
+        r.fechaInformePlanificada||'',
+        u1?u1.name:'', u2?u2.name:''
+      ];
     });
-  });
-  
+    RainbowXLSX.descargar('cronograma_id_'+new Date().toISOString().slice(0,10)+'.xlsx',
+      [{name:'Cronograma',cols:cols,rows:data}]);
+  }
+
+  // Cumplimiento a Excel
+  function exportCumplimiento(){
+    if(typeof RainbowXLSX==='undefined'){ alert('No se pudo cargar el generador de Excel.'); return; }
+    if(!rows.length){ alert('No hay registros.'); return; }
+    var cols=[
+      {label:'Producto',width:28,type:'text'},
+      {label:'Evaluacion',width:20,type:'text'},
+      {label:'Fecha planificada',width:16,type:'date'},
+      {label:'Fecha real',width:16,type:'date'},
+      {label:'Estado',width:14,type:'text'},
+      {label:'Retrasada?',width:12,type:'text'},
+      {label:'Observaciones',width:40,type:'text'}
+    ];
+    var todayISO=new Date().toISOString().slice(0,10);
+    var data=[];
+    rows.forEach(function(r){
+      if(!Array.isArray(r.evaluaciones)||!r.evaluaciones.length){
+        data.push([r.producto||'','(sin evaluaciones)','','','','','']);
+      } else {
+        r.evaluaciones.forEach(function(ev){
+          var retrasada=(ev.estado==='Pendiente'&&ev.fechaPlanificada&&ev.fechaPlanificada<todayISO)?'Si':'No';
+          data.push([
+            r.producto||'', ev.tipo||'', ev.fechaPlanificada||'', ev.fechaReal||'',
+            ev.estado||'', retrasada, ev.observaciones||''
+          ]);
+        });
+      }
+    });
+    // Fila de totales
+    var planif=data.filter(function(d){ return d[2]; }).length;
+    var real=data.filter(function(d){ return d[3]; }).length;
+    var retr=data.filter(function(d){ return d[5]==='Si'; }).length;
+    data.push([]);
+    data.push(['TOTAL','','','','','', '']);
+    data.push(['Planificadas',planif,'','','','','']);
+    data.push(['Realizadas',real,'','','','','']);
+    data.push(['Retrasadas',retr,'','','','','']);
+    data.push(['% Cumplimiento',planif>0?Math.round(real/planif*100)+'%':'0%','','','','','']);
+
+    RainbowXLSX.descargar('cumplimiento_id_'+new Date().toISOString().slice(0,10)+'.xlsx',
+      [{name:'Cumplimiento',cols:cols,rows:data}]);
+  }
+
+  // Resumen ejecutivo a Excel
+  function exportResumenEjec(){
+    if(typeof RainbowXLSX==='undefined'){ alert('No se pudo cargar el generador de Excel.'); return; }
+    if(!rows.length){ alert('No hay registros.'); return; }
+    var states=moduleSchema.schema.states||{};
+    var stateValues=states.values||[];
+    var stateField=states.field||'estadoGeneral';
+
+    // Hoja 1: Resumen por estado
+    var cols1=[{label:'Estado',width:28,type:'text'},{label:'Cantidad',width:12,type:'number'},{label:'%',width:10,type:'text'}];
+    var data1=[];
+    var total=rows.length;
+    stateValues.forEach(function(s){
+      var cnt=rows.filter(function(r){ return r[stateField]===s; }).length;
+      if(cnt>0) data1.push([s,cnt,total>0?Math.round(cnt/total*100)+'%':'0%']);
+    });
+    data1.push([]);
+    data1.push(['TOTAL',total,'100%']);
+
+    // Hoja 2: Por tipo de producto
+    var tipos=['Insecticida','Fungicida','Bioinsumo','Bioestimulante','Micronutriente','Otro'];
+    var cols2=[{label:'Tipo de producto',width:22,type:'text'},{label:'Ensayos',width:12,type:'number'},{label:'Completados',width:14,type:'number'},{label:'Activos',width:12,type:'number'},{label:'Suspendidos',width:14,type:'number'}];
+    var data2=[];
+    tipos.forEach(function(t){
+      var ens=rows.filter(function(r){ return r.tipoProducto===t; });
+      if(ens.length){
+        data2.push([t,ens.length,
+          ens.filter(function(r){ return r[stateField]==='Completado'; }).length,
+          ens.filter(function(r){ return r[stateField]!=='Completado'&&r[stateField]!=='Suspendido'; }).length,
+          ens.filter(function(r){ return r[stateField]==='Suspendido'; }).length
+        ]);
+      }
+    });
+
+    // Hoja 3: Evaluaciones
+    var cols3=[{label:'Metrica',width:28,type:'text'},{label:'Valor',width:14,type:'text'}];
+    var evalPlan=0,evalReal=0,evalPend=0,evalRetr=0;
+    var todayISO=new Date().toISOString().slice(0,10);
+    rows.forEach(function(r){
+      if(Array.isArray(r.evaluaciones)){
+        r.evaluaciones.forEach(function(ev){
+          if(ev.fechaPlanificada||ev.fechaReal) evalPlan++;
+          if(ev.estado==='Realizada') evalReal++;
+          if(ev.estado==='Pendiente'){
+            evalPend++;
+            if(ev.fechaPlanificada&&ev.fechaPlanificada<todayISO) evalRetr++;
+          }
+        });
+      }
+    });
+    var data3=[
+      ['Total ensayos',String(rows.length)],
+      ['Ensayos activos',String(rows.filter(function(r){ return r[stateField]!=='Completado'&&r[stateField]!=='Suspendido'; }).length)],
+      ['Ensayos completados',String(rows.filter(function(r){ return r[stateField]==='Completado'; }).length)],
+      ['Ensayos suspendidos',String(rows.filter(function(r){ return r[stateField]==='Suspendido'; }).length)],
+      ['Evaluaciones planificadas',String(evalPlan)],
+      ['Evaluaciones realizadas',String(evalReal)],
+      ['Evaluaciones pendientes',String(evalPend)],
+      ['Evaluaciones retrasadas',String(evalRetr)],
+      ['% Cumplimiento evaluaciones',evalPlan>0?Math.round(evalReal/evalPlan*100)+'%':'0%']
+    ];
+
+    RainbowXLSX.descargar('resumen_id_'+new Date().toISOString().slice(0,10)+'.xlsx',
+      [
+        {name:'Por estado',cols:cols1,rows:data1},
+        {name:'Por tipo',cols:cols2,rows:data2},
+        {name:'Evaluaciones',cols:cols3,rows:data3}
+      ]);
+  }
+
   // Check auth on load
   api('GET','/api/me').then(function(res){
     if(res.ok){ start(res.data.user); }
     else { $('login').classList.remove('hide'); }
   });
-  
+
 })();
 </script>
 </body>
