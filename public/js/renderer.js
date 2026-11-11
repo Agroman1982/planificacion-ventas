@@ -259,7 +259,88 @@
       return values;
     },
     
-    // Renderizar tarjeta de actividad/fila
+    // Renderizar tarjeta compacta de I+D (solo nombre + estado)
+    renderIDCard(row, schema, onClick) {
+      if (!schema || !schema.schema) return document.createElement('div');
+      
+      const states = schema.schema.states || {};
+      const stateField = states.field || 'estadoGeneral';
+      const stateColors = states.colors || {};
+      
+      const card = document.createElement('div');
+      card.className = 'act id-product-row';
+      card.style.cssText = 'cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;margin-bottom:8px';
+      card.onclick = onClick;
+      
+      const title = document.createElement('div');
+      title.style.fontWeight = '600';
+      title.textContent = row.producto || '—';
+      card.appendChild(title);
+      
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = row[stateField] || '';
+      badge.style.background = stateColors[row[stateField]] || '#9e9e9e';
+      badge.style.color = '#fff';
+      card.appendChild(badge);
+      
+      return card;
+    },
+
+    // Renderizar lista agrupada por categoria para I+D
+    renderIDGroupedList(rows, schema, ownerNames, onRowClick) {
+      const container = document.createElement('div');
+      container.className = 'id-grouped-list';
+      
+      if (!rows.length) {
+        container.innerHTML = '<p class="muted" style="text-align:center;padding:20px">Sin registros todavia.</p>';
+        return container;
+      }
+      
+      const states = schema.schema.states || {};
+      const stateField = states.field || 'estadoGeneral';
+      
+      const grupoProyecto = ['Producto potencial', 'Muestras solicitadas', 'Protocolo en elaboracion', 'Protocolo aprobado'];
+      const grupoEjecucion = ['Busqueda de campos', 'Instalacion', 'Evaluaciones en curso', 'Gabinete'];
+      const grupoCompletado = ['Completado'];
+      const grupoSuspendido = ['Suspendido'];
+      
+      const grupos = [
+        { key: 'proyecto', label: '1. En proyecto', color: '#1976d2', estados: grupoProyecto },
+        { key: 'ejecucion', label: '2. En ejecucion', color: '#ff9800', estados: grupoEjecucion },
+        { key: 'completado', label: '3. Completado', color: '#2e7d32', estados: grupoCompletado },
+        { key: 'suspendido', label: '4. Suspendido', color: '#c62828', estados: grupoSuspendido }
+      ];
+      
+      grupos.forEach(grupo => {
+        const items = rows.filter(r => grupo.estados.indexOf(r[stateField]) >= 0);
+        if (!items.length) return;
+        
+        const section = document.createElement('div');
+        section.style.marginBottom = '16px';
+        
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px 10px;background:#f0f4f8;border-radius:10px';
+        const dot = document.createElement('span');
+        dot.style.cssText = 'width:10px;height:10px;border-radius:50%;background:' + grupo.color;
+        const label = document.createElement('span');
+        label.style.cssText = 'font-weight:700;font-size:14px';
+        label.textContent = grupo.label + ' (' + items.length + ')';
+        header.appendChild(dot);
+        header.appendChild(label);
+        section.appendChild(header);
+        
+        items.forEach(row => {
+          section.appendChild(this.renderIDCard(row, schema, function() { onRowClick(row.id); }));
+        });
+        
+        container.appendChild(section);
+      });
+      
+      return container;
+    },
+
+    // Renderizar tarjeta de actividad/fila (generica, se mantiene para otros modulos)
     renderCard(row, schema, ownerNames, currentUser) {
       if (!schema || !schema.schema) return document.createElement('div');
       
@@ -637,7 +718,295 @@
       
       return container;
     },
-    
+
+    // Renderizar detalle de I+D con layout de dos columnas:
+    // izquierda: info del producto; derecha: timeline de actividades.
+    renderIDDetail(row, schema, users, onUpdate) {
+      const container = document.createElement('div');
+      container.className = 'id-detail';
+      container.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:16px';
+      if(window.innerWidth < 640) container.style.gridTemplateColumns = '1fr';
+      
+      const states = schema.schema.states || {};
+      const stateColors = states.colors || {};
+      
+      // ---- Columna izquierda: info del producto ----
+      const left = document.createElement('div');
+      
+      const infoFields = [
+        { name: 'producto', label: 'Producto' },
+        { name: 'tipoProducto', label: 'Tipo de producto' },
+        { name: 'descripcion', label: 'Descripcion', full: true },
+        { name: 'protocoloLink', label: 'Protocolo (archivo/link)', full: true },
+        { name: 'tratamientos', label: 'Tratamientos', full: true },
+        { name: 'variablesEvaluar', label: 'Variables a evaluar', full: true },
+        { name: 'observaciones', label: 'Observaciones', full: true }
+      ];
+      
+      infoFields.forEach(f => {
+        const value = row[f.name];
+        if(value === '' || value === null || value === undefined) return;
+        const div = document.createElement('div');
+        div.style.marginBottom = '10px';
+        if(f.full) div.style.gridColumn = '1/-1';
+        const label = document.createElement('div');
+        label.className = 'k';
+        label.textContent = f.label;
+        const valDiv = document.createElement('div');
+        valDiv.className = 'v';
+        valDiv.textContent = value;
+        div.appendChild(label);
+        div.appendChild(valDiv);
+        left.appendChild(div);
+      });
+      
+      // Campos experimentales (2 columnas)
+      const campos = [
+        { num: 1, rtc: row.campo1Rtc, ubicacion: row.campo1Ubicacion, cliente: row.campo1Cliente },
+        { num: 2, rtc: row.campo2Rtc, ubicacion: row.campo2Ubicacion, cliente: row.campo2Cliente }
+      ];
+      campos.forEach(c => {
+        if(!c.rtc && !c.ubicacion && !c.cliente) return;
+        const div = document.createElement('div');
+        div.style.cssText = 'background:#f8f9fa;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight:700;font-size:13px;margin-bottom:6px';
+        title.textContent = 'Campo ' + c.num;
+        div.appendChild(title);
+        
+        const u = (users || []).find(x => x.id === c.rtc);
+        if(u) div.innerHTML += '<div class="k">RTC / Responsable</div><div class="v">' + this.esc(u.name) + ' (' + (u.role === 'promotor' ? 'Promotor' : (u.role === 'kam' ? 'KAM' : 'RTC')) + ')</div>';
+        if(c.ubicacion) div.innerHTML += '<div class="k">Ubicacion</div><div class="v">' + this.esc(c.ubicacion) + '</div>';
+        if(c.cliente) div.innerHTML += '<div class="k">Cliente / Propietario</div><div class="v">' + this.esc(c.cliente) + '</div>';
+        left.appendChild(div);
+      });
+      
+      container.appendChild(left);
+      
+      // ---- Columna derecha: timeline de actividades ----
+      const right = document.createElement('div');
+      right.style.cssText = 'background:#f8f9fa;border:1px solid var(--line);border-radius:12px;padding:14px';
+      
+      const title = document.createElement('h2');
+      title.style.cssText = 'font-size:15px;margin:0 0 12px';
+      title.textContent = 'Actividades';
+      right.appendChild(title);
+      
+      const today = new Date().toISOString().slice(0, 10);
+      const canUpdate = typeof onUpdate === 'function';
+      
+      // Helper para crear fila de actividad
+      const createActivityRow = (opts) => {
+        const { label, done, progDate, execDate, onCheck, onDateChange, dateEditable } = opts;
+        const rowDiv = document.createElement('div');
+        rowDiv.style.cssText = 'display:grid;grid-template-columns:1fr 90px 90px 28px;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:12px';
+        
+        // Label
+        const lbl = document.createElement('div');
+        lbl.style.cssText = 'font-weight:600' + (done ? ';text-decoration:line-through;color:#64748b' : '');
+        lbl.textContent = label;
+        rowDiv.appendChild(lbl);
+        
+        // Fecha programacion
+        const fpWrap = document.createElement('div');
+        fpWrap.style.textAlign = 'center';
+        const fpLabel = document.createElement('div');
+        fpLabel.style.cssText = 'font-size:9px;color:var(--muted);text-transform:uppercase';
+        fpLabel.textContent = 'F. Program.';
+        const fpVal = document.createElement('div');
+        fpVal.textContent = progDate || '—';
+        fpWrap.appendChild(fpLabel);
+        fpWrap.appendChild(fpVal);
+        rowDiv.appendChild(fpWrap);
+        
+        // Fecha ejecucion
+        const feWrap = document.createElement('div');
+        feWrap.style.textAlign = 'center';
+        const feLabel = document.createElement('div');
+        feLabel.style.cssText = 'font-size:9px;color:var(--muted);text-transform:uppercase';
+        feLabel.textContent = 'F. Ejecuc.';
+        const feVal = document.createElement('input');
+        feVal.type = 'date';
+        feVal.value = execDate || '';
+        feVal.style.cssText = 'width:100%;padding:2px;font-size:11px;border:1px solid ' + (done ? '#22c55e' : '#cbd5e1') + ';border-radius:4px';
+        feVal.disabled = !canUpdate || done;
+        if(dateEditable && canUpdate && !done) {
+          feVal.onchange = function() { if(onDateChange) onDateChange(feVal.value); };
+        }
+        feWrap.appendChild(feLabel);
+        feWrap.appendChild(feVal);
+        rowDiv.appendChild(feWrap);
+        
+        // Checkbox
+        const chkWrap = document.createElement('div');
+        chkWrap.style.textAlign = 'center';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = !!done;
+        chk.style.cssText = 'width:18px;height:18px;cursor:pointer';
+        chk.disabled = !canUpdate;
+        if(canUpdate) {
+          chk.onchange = function() {
+            if(onCheck) onCheck(chk.checked);
+          };
+        }
+        chkWrap.appendChild(chk);
+        rowDiv.appendChild(chkWrap);
+        
+        return rowDiv;
+      };
+      
+      // 1. Solicitud de muestras
+      const muestrasSolicitadas = row.estadoMuestras && row.estadoMuestras !== 'No solicitadas';
+      right.appendChild(createActivityRow({
+        label: 'Solicitud de muestras',
+        done: muestrasSolicitadas,
+        progDate: '',
+        execDate: muestrasSolicitadas ? row.fechaMuestras : '',
+        onCheck: function(checked) {
+          if(checked) onUpdate({ estadoMuestras: 'Solicitadas', fechaMuestras: today });
+          else onUpdate({ estadoMuestras: 'No solicitadas', fechaMuestras: '' });
+        }
+      }));
+      
+      // 2. Recepcion de muestras
+      const muestrasRecibidas = row.estadoMuestras === 'Recibidas' || row.estadoMuestras === 'Parciales';
+      right.appendChild(createActivityRow({
+        label: 'Recepcion de muestras',
+        done: muestrasRecibidas,
+        progDate: '',
+        execDate: muestrasRecibidas ? row.fechaMuestras : '',
+        onCheck: function(checked) {
+          if(checked) onUpdate({ estadoMuestras: 'Recibidas' });
+          else onUpdate({ estadoMuestras: row.estadoMuestras === 'Solicitadas' ? 'Solicitadas' : 'No solicitadas' });
+        }
+      }));
+      
+      // 3. Elaboracion de protocolo
+      const protocoloAprobado = row.estadoProtocolo === 'Aprobado';
+      right.appendChild(createActivityRow({
+        label: 'Elaboracion de protocolo',
+        done: protocoloAprobado,
+        progDate: '',
+        execDate: protocoloAprobado ? today : '',
+        onCheck: function(checked) {
+          if(checked) onUpdate({ estadoProtocolo: 'Aprobado' });
+          else onUpdate({ estadoProtocolo: 'En elaboracion' });
+        }
+      }));
+      
+      // 4. Ubicacion campo experimental
+      const ubicacionLista = row.campo1Rtc && row.campo2Rtc && row.campo1Ubicacion && row.campo2Ubicacion && row.campo1Cliente && row.campo2Cliente;
+      right.appendChild(createActivityRow({
+        label: 'Ubicacion campo experimental',
+        done: ubicacionLista,
+        progDate: '',
+        execDate: ubicacionLista ? today : '',
+        onCheck: function(checked) {
+          // No se puede marcar desde aqui si faltan datos; se hace desde el formulario
+          if(!ubicacionLista && checked) {
+            alert('Completa Campo 1 y Campo 2 (RTC, ubicacion y cliente) desde el boton Editar.');
+            return;
+          }
+          onUpdate({}); // no-op
+        }
+      }));
+      
+      // 5. Instalacion de ensayo
+      const instalacionDone = row.fechaInstalacion !== '';
+      right.appendChild(createActivityRow({
+        label: 'Instalacion de ensayo',
+        done: instalacionDone,
+        progDate: row.fechaInstalacion || '',
+        execDate: instalacionDone ? row.fechaInstalacion : '',
+        dateEditable: true,
+        onDateChange: function(date) {
+          onUpdate({ fechaInstalacion: date });
+        },
+        onCheck: function(checked) {
+          if(checked) onUpdate({ fechaInstalacion: today });
+          else onUpdate({ fechaInstalacion: '' });
+        }
+      }));
+      
+      // 6. Evaluaciones (una fila por evaluacion)
+      if(Array.isArray(row.evaluaciones) && row.evaluaciones.length) {
+        row.evaluaciones.forEach((ev, idx) => {
+          right.appendChild(createActivityRow({
+            label: ev.tipo || ('Evaluacion ' + (idx + 1)),
+            done: ev.estado === 'Realizada',
+            progDate: ev.fechaPlanificada || '',
+            execDate: ev.fechaReal || '',
+            dateEditable: true,
+            onDateChange: function(date) {
+              const evals = JSON.parse(JSON.stringify(row.evaluaciones));
+              evals[idx].fechaReal = date;
+              if(date) evals[idx].estado = 'Realizada';
+              onUpdate({ evaluaciones: evals });
+            },
+            onCheck: function(checked) {
+              const evals = JSON.parse(JSON.stringify(row.evaluaciones));
+              evals[idx].estado = checked ? 'Realizada' : 'Pendiente';
+              evals[idx].fechaReal = checked ? today : '';
+              onUpdate({ evaluaciones: evals });
+            }
+          }));
+        });
+      }
+      
+      // 7. Elaboracion informe
+      const informeDone = row.fechaInformePlanificada !== '' && ['Gabinete', 'Completado'].indexOf(row.estadoGeneral) >= 0;
+      right.appendChild(createActivityRow({
+        label: 'Elaboracion informe',
+        done: informeDone,
+        progDate: row.fechaInformePlanificada || '',
+        execDate: informeDone ? row.fechaInformePlanificada : '',
+        dateEditable: true,
+        onDateChange: function(date) {
+          onUpdate({ fechaInformePlanificada: date });
+        },
+        onCheck: function(checked) {
+          if(checked) onUpdate({ fechaInformePlanificada: today, estadoGeneral: 'Gabinete' });
+          else onUpdate({ estadoGeneral: 'Evaluaciones en curso' });
+        }
+      }));
+      
+      // 8. Culminado
+      const culminado = row.estadoGeneral === 'Completado';
+      right.appendChild(createActivityRow({
+        label: 'Culminado',
+        done: culminado,
+        progDate: '',
+        execDate: culminado ? today : '',
+        onCheck: function(checked) {
+          if(checked) onUpdate({ estadoGeneral: 'Completado' });
+          else onUpdate({ estadoGeneral: 'Gabinete' });
+        }
+      }));
+      
+      // Estado actual badge
+      const statusBadge = document.createElement('div');
+      statusBadge.style.cssText = 'margin-top:12px;text-align:center';
+      statusBadge.innerHTML = '<span class="badge" style="background:' + (stateColors[row.estadoGeneral] || '#999') + ';color:#fff;font-size:12px">' + this.esc(row.estadoGeneral) + '</span>';
+      right.appendChild(statusBadge);
+      
+      container.appendChild(right);
+      
+      return container;
+    },
+
+    // Preparar payload de actualizacion desde el timeline (solo campos editables)
+    buildIDUpdatePayload(row, changes) {
+      // Conservar todos los campos actuales y aplicar cambios
+      const payload = Object.assign({}, row, changes);
+      // Eliminar campos de solo lectura/control
+      delete payload.id;
+      delete payload.createdAt;
+      delete payload.updatedAt;
+      delete payload.ownerId;
+      return payload;
+    },
+
     // Obtener color para estado
     getStateColor(estado, schema) {
       if (!schema || !schema.schema || !schema.schema.states || !schema.schema.states.colors) {

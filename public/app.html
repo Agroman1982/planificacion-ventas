@@ -124,7 +124,7 @@
 
   <!-- DETAIL MODAL -->
   <div id="detailModal" class="overlay hide">
-    <div class="modal">
+    <div class="modal" id="detailModalBox" style="max-width:760px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2>Detalle</h2>
         <button class="ghost small" id="closeDetail">Cerrar</button>
@@ -335,11 +335,16 @@
       container.innerHTML='<div class="muted" style="text-align:center;padding:20px">Sin registros todavia.</div>';
       return;
     }
-    rows.forEach(function(row){
-      var card=ModuleRenderer.renderCard(row, moduleSchema, ownerNames, me);
-      card.onclick=function(){ openDetail(row.id); };
-      container.appendChild(card);
-    });
+    if(currentModule==='i-d'){
+      var grouped=ModuleRenderer.renderIDGroupedList(rows, moduleSchema, ownerNames, openDetail);
+      container.appendChild(grouped);
+    } else {
+      rows.forEach(function(row){
+        var card=ModuleRenderer.renderCard(row, moduleSchema, ownerNames, me);
+        card.onclick=function(){ openDetail(row.id); };
+        container.appendChild(card);
+      });
+    }
   }
 
   function renderCalendarView(container){
@@ -447,6 +452,32 @@
     var content=$('detailContent');
     content.innerHTML='';
 
+    // Para I+D usamos el detalle con timeline de actividades
+    if(currentModule==='i-d'){
+      var canEdit=(me.role==='admin'||me.role==='supervisor'||me.role==='coordinador'||row.campo1Rtc===me.id||row.campo2Rtc===me.id);
+      var detail=ModuleRenderer.renderIDDetail(row, moduleSchema, moduleUsers, canEdit ? function(changes){
+        var payload=ModuleRenderer.buildIDUpdatePayload(row, changes);
+        api('PUT','/api/modules/'+currentModule+'/rows/'+rowId, payload).then(function(res){
+          if(res.ok){
+            loadRows();
+            toast('Actualizado');
+          } else {
+            alert(res.data.error||'Error al actualizar');
+          }
+        });
+      } : null);
+      content.appendChild(detail);
+
+      // Editar: visible para quien tiene permisos (admin/supervisor/coordinador o asignado al campo)
+      $('editBtn').style.display=canEdit?'':'none';
+      $('deleteBtn').style.display=(me.role==='admin'||me.role==='supervisor')?'':'none';
+
+      $('detailModal').classList.remove('hide');
+      editingId=rowId;
+      return;
+    }
+
+    // Vista generica para otros modulos
     moduleSchema.schema.fields.forEach(function(field){
       var div=document.createElement('div');
       div.style.marginBottom='10px';
@@ -550,17 +581,6 @@
     clearTimeout(el._t); el._t=setTimeout(function(){ el.style.display='none'; },3500);
   }
 
-  $('editBtn').onclick=function(){
-    if(!editingId) return;
-    var row=rows.find(function(r){ return r.id===editingId; });
-    if(!row) return;
-
-    $('detailModal').classList.add('hide');
-    $('formTitle').textContent='Editar registro';
-    ModuleRenderer.renderForm('dynamicForm', moduleSchema, row, me.role==='admin');
-    window.scrollTo(0,0);
-  };
-
   $('deleteBtn').onclick=function(){
     if(!editingId) return;
     if(!confirm('Eliminar este registro?')) return;
@@ -574,6 +594,24 @@
         alert(res.data.error||'Error al eliminar');
       }
     });
+  };
+
+  // Handler del boton Editar (unificado para todos los modulos)
+  $('editBtn').onclick=function(){
+    if(!editingId) return;
+    var row=rows.find(function(r){ return r.id===editingId; });
+    if(!row) return;
+
+    // Para I+D, verificar permisos: admin/supervisor/coordinador o asignado
+    if(currentModule==='i-d'){
+      var canEdit=(me.role==='admin'||me.role==='supervisor'||me.role==='coordinador'||row.campo1Rtc===me.id||row.campo2Rtc===me.id);
+      if(!canEdit) return;
+    }
+
+    $('detailModal').classList.add('hide');
+    $('formTitle').textContent='Editar registro';
+    ModuleRenderer.renderForm('dynamicForm', moduleSchema, row, me.role==='admin');
+    window.scrollTo(0,0);
   };
 
   // ---- Exportaciones ----

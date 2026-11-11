@@ -730,15 +730,22 @@ const server = http.createServer(async (req, res) => {
       if (!row) return sendJSON(res, 404, { error: 'No encontrado' });
 
       // Permisos por modulo (I+D): admin, supervisor, coordinador pueden editar/borrar.
-      // RTCs pueden ver pero no editar.
+      // RTCs/KAMs/promotores asignados a campo1Rtc/campo2Rtc pueden editar para marcar
+      // actividades y evaluaciones como realizadas, pero no borrar.
       const schema = loadModuleSchema(moduleId);
       const editRoles = schema && schema.schema && schema.schema.permissions && schema.schema.permissions.edit;
       const deleteRoles = schema && schema.schema && schema.schema.permissions && schema.schema.permissions.delete;
+      const assignedRoles = schema && schema.schema && schema.schema.permissions && schema.schema.permissions.viewAssigned;
+      const assignedFields = schema && schema.schema && schema.schema.features && schema.schema.features.assignedFields;
+      const isAssigned = Array.isArray(assignedFields) && Array.isArray(assignedRoles) && assignedRoles.includes(me.role)
+        && assignedFields.some(f => row[f] === me.id);
       if (Array.isArray(editRoles)) {
-        const canEdit = editRoles.includes(me.role) || (editRoles.includes('owner') && row.ownerId === me.id);
+        const canEdit = editRoles.includes(me.role)
+          || (editRoles.includes('owner') && row.ownerId === me.id)
+          || isAssigned;
         if (!canEdit) return sendJSON(res, 403, { error: 'No tienes permiso para editar este registro' });
       } else {
-        if (!puedeTocarFila(me, row)) return sendJSON(res, 403, { error: 'No tienes permiso sobre esta fila' });
+        if (!puedeTocarFila(me, row) && !isAssigned) return sendJSON(res, 403, { error: 'No tienes permiso sobre esta fila' });
       }
 
       if (method === 'DELETE') {
