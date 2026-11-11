@@ -50,11 +50,19 @@
   .tab.active{background:var(--card);color:var(--ink);border-bottom:1px solid var(--card);position:relative;z-index:1}
   .eval-editor{border:1px solid var(--line);border-radius:10px;padding:12px;background:#f8f9fa}
   .eval-list{margin-bottom:4px}
-  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:8px}
-  .cal-day{background:#f8f9fa;border-radius:8px;min-height:50px;padding:4px;font-size:11px}
-  .cal-day.today{border:2px solid var(--brand)}
-  .cal-day.weekend{background:#fce4ec}
-  .cal-chip{display:inline-block;padding:2px 6px;border-radius:6px;margin:1px;font-size:10px;color:#fff;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cal-scroll{overflow-x:auto}
+  .cal-month{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:8px;min-width:620px}
+  .cal-mday-h{text-align:center;font-weight:700;font-size:11px;color:var(--muted);padding:4px 0}
+  .cal-mday{background:#f8f9fa;border-radius:8px;min-height:92px;padding:4px;font-size:11px;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+  .cal-mday.out{background:#eef2f6;opacity:.55}
+  .cal-mday.today{border:2px solid var(--brand);background:#eef4ff}
+  .cal-mday.weekend{background:#fdf1f5}
+  .cal-mday.today.weekend{background:#eef4ff}
+  .cal-mday .dnum{font-weight:700;font-size:11px;color:var(--muted)}
+  .cal-mday.today .dnum{color:var(--brand)}
+  .cal-chip{display:block;padding:2px 6px;border-radius:6px;font-size:10px;color:#fff;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+  .cal-chip:hover{opacity:.85}
+  .cal-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -263,6 +271,10 @@
     var container=$('viewContainer');
     container.innerHTML='';
 
+    // En la pestana Calendario solo va el calendario: se oculta el formulario
+    // de "Nuevo registro".
+    $('formCard').style.display=(currentView==='calendario')?'none':'';
+
     // Barra de herramientas (buscar + exportar)
     var toolbar=document.createElement('div');
     toolbar.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap';
@@ -347,101 +359,175 @@
     }
   }
 
+  // Calendario: vista de mes completo (no semanal).
   function renderCalendarView(container){
     var states=moduleSchema.schema.states||{};
     var stateColors=states.colors||{};
-    var stateField=states.field||'estado';
-    var dateField='fechaInstalacion';
+    var fields=moduleSchema.schema.fields||[];
+    var cfg=(moduleSchema.schema.views&&moduleSchema.schema.views.calendario)||{};
+    var colorBy=cfg.colorBy||(states.field||'estado');
+    var dateField=cfg.dateField||(fields.some(function(f){return f.name==='dia';})?'dia':null);
+    var titleField=['producto','cliente','nombre','trabajo'].filter(function(n){
+      return fields.some(function(f){return f.name===n;});
+    })[0]||(fields.filter(function(f){return f.type==='text';})[0]||{}).name;
 
-    // Determinar semana actual
+    // Fecha en formato ISO pero basada en hora local (evita el corrimiento de zona horaria)
+    function isoLocal(d){
+      var m=('0'+(d.getMonth()+1)).slice(-2), day=('0'+d.getDate()).slice(-2);
+      return d.getFullYear()+'-'+m+'-'+day;
+    }
+    function corto(s,max){
+      s=String(s||'').replace(/\s*\(.*$/,'');
+      return s.length>max?s.slice(0,max-1)+'\u2026':s;
+    }
+    // Eventos de una fila: hito principal + hitos de actividades (I+D)
+    function eventosDeFila(row){
+      var ev=[];
+      var base=row[titleField]||'';
+      var col=stateColors[row[colorBy]]||'#1976d2';
+      if(dateField&&row[dateField]){
+        var sufijo=(currentModule==='i-d')?' \u00b7 inst.':'';
+        ev.push({date:row[dateField],label:corto(base,13)+sufijo,color:col,
+                 title:base+' \u2014 '+(currentModule==='i-d'?'Instalacion del ensayo':dateField)+' ('+row[dateField]+')'});
+      }
+      if(currentModule==='i-d'){
+        if(row.fechaMuestras){
+          ev.push({date:row.fechaMuestras,label:corto(base,13)+' \u00b7 muest.',color:'#fbc02d',
+                   title:base+' \u2014 Solicitud de muestras ('+row.fechaMuestras+')'});
+        }
+        if(Array.isArray(row.evaluaciones)){
+          row.evaluaciones.forEach(function(e,i){
+            var d=e.fechaReal||e.fechaPlanificada;
+            if(!d) return;
+            ev.push({date:d,label:corto(base,13)+' \u00b7 E'+(i+1),
+                     color:e.estado==='Realizada'?'#2e7d32':'#fbc02d',
+                     title:base+' \u2014 '+(e.tipo||('Evaluacion '+(i+1)))+' ('+d+')'});
+          });
+        }
+        if(row.fechaInformePlanificada){
+          ev.push({date:row.fechaInformePlanificada,label:corto(base,13)+' \u00b7 inf.',color:'#7b1fa2',
+                   title:base+' \u2014 Informe ('+row.fechaInformePlanificada+')'});
+        }
+      }
+      return ev;
+    }
+
     var today=new Date();
-    var dayOfWeek=today.getDay()||7;
-    var monday=new Date(today.getFullYear(),today.getMonth(),today.getDate()-(dayOfWeek-1));
+    var todayISO=isoLocal(today);
+    var viewYear=today.getFullYear(), viewMonth=today.getMonth();
 
     var calDiv=document.createElement('div');
     calDiv.className='card';
 
     var nav=document.createElement('div');
-    nav.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px';
+    nav.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:6px';
     var prevBtn=document.createElement('button');
     prevBtn.className='ghost small';
     prevBtn.textContent='\u2190 Anterior';
-    var weekLabel=document.createElement('div');
-    weekLabel.style.fontWeight='700';
+    var monthLabel=document.createElement('div');
+    monthLabel.style.cssText='font-weight:700;font-size:16px;flex:1;text-align:center';
+    var hoyBtn=document.createElement('button');
+    hoyBtn.className='ghost small';
+    hoyBtn.textContent='Hoy';
     var nextBtn=document.createElement('button');
     nextBtn.className='ghost small';
     nextBtn.textContent='Siguiente \u2192';
     nav.appendChild(prevBtn);
-    nav.appendChild(weekLabel);
+    nav.appendChild(monthLabel);
+    nav.appendChild(hoyBtn);
     nav.appendChild(nextBtn);
     calDiv.appendChild(nav);
 
+    if(!dateField&&currentModule!=='i-d'){
+      var hint=document.createElement('div');
+      hint.className='muted';
+      hint.style.cssText='font-size:12px;text-align:center;padding:14px';
+      hint.textContent='Este modulo no tiene fechas para mostrar en el calendario.';
+      calDiv.appendChild(hint);
+    }
+
+    var scroll=document.createElement('div');
+    scroll.className='cal-scroll';
     var gridEl=document.createElement('div');
-    gridEl.className='cal-grid';
-    calDiv.appendChild(gridEl);
+    gridEl.className='cal-month';
+    scroll.appendChild(gridEl);
+    calDiv.appendChild(scroll);
+
+    // Leyenda de colores
+    var legend=document.createElement('div');
+    legend.className='cal-legend';
+    legend.innerHTML='<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#fbc02d;margin-right:3px"></span> Muestras / Evaluacion pendiente</span>'
+      +'<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#2e7d32;margin-right:3px"></span> Evaluacion realizada</span>'
+      +'<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#7b1fa2;margin-right:3px"></span> Informe</span>'
+      +'<span><span style="display:inline-block;width:18px;height:10px;border-radius:3px;background:linear-gradient(90deg,#1976d2,#66bb6a,#2e7d32);margin-right:3px"></span> Hito principal (color = estado del ensayo)</span>';
+    calDiv.appendChild(legend);
+
     container.appendChild(calDiv);
 
-    var calOffset=0;
+    var MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    // Se calculan los eventos una sola vez por fila (no por celda)
+    var eventosPorFila=rows.map(function(r){ return eventosDeFila(r); });
+
     function renderCal(){
       gridEl.innerHTML='';
-      var refMonday=new Date(monday.getFullYear(),monday.getMonth(),monday.getDate()+calOffset*7);
-      var refSunday=new Date(refMonday.getFullYear(),refMonday.getMonth(),refMonday.getDate()+6);
-      var monthNames=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-      weekLabel.textContent='Semana: '+refMonday.getDate()+' '+monthNames[refMonday.getMonth()]+' - '+refSunday.getDate()+' '+monthNames[refSunday.getMonth()]+' '+refSunday.getFullYear();
+      monthLabel.textContent=MESES[viewMonth]+' '+viewYear;
 
-      var dayNames=['Lun','Mar','Mie','Jue','Vie','Sab','Dom'];
-      dayNames.forEach(function(dn){
+      ['Lun','Mar','Mie','Jue','Vie','Sab','Dom'].forEach(function(dn){
         var dh=document.createElement('div');
-        dh.style.cssText='text-align:center;font-weight:700;font-size:11px;color:var(--muted);padding:4px';
+        dh.className='cal-mday-h';
         dh.textContent=dn;
         gridEl.appendChild(dh);
       });
 
-      for(var i=0;i<7;i++){
-        var d=new Date(refMonday.getFullYear(),refMonday.getMonth(),refMonday.getDate()+i);
-        var iso=d.toISOString().slice(0,10);
-        var dayDiv=document.createElement('div');
-        dayDiv.className='cal-day'+(iso===today.toISOString().slice(0,10)?' today':'')+(i>=5?' weekend':'');
-        var dayNum=document.createElement('div');
-        dayNum.style.cssText='font-weight:700;font-size:10px;color:var(--muted)';
-        dayNum.textContent=d.getDate();
-        dayDiv.appendChild(dayNum);
+      var first=new Date(viewYear,viewMonth,1);
+      var offset=(first.getDay()||7)-1;   // la semana empieza en lunes
+      var start=new Date(viewYear,viewMonth,1-offset);
 
-        // Encontrar filas para este dia
-        rows.forEach(function(row){
-          var chips=[];
-          // Fecha instalacion
-          if(row.fechaInstalacion===iso) chips.push({label:row.producto||'',color:stateColors[row[stateField]]||'#1976d2'});
-          // Evaluaciones
-          if(Array.isArray(row.evaluaciones)){
-            row.evaluaciones.forEach(function(ev){
-              var evDate=ev.fechaReal||ev.fechaPlanificada;
-              if(evDate===iso){
-                var evColor=ev.estado==='Realizada'?'#2e7d32':(ev.estado==='No realizada'?'#c62828':'#666');
-                chips.push({label:(row.producto||'')+' '+esc(ev.tipo||''),color:evColor});
-              }
-            });
-          }
-          // Fecha informe
-          if(row.fechaInformePlanificada===iso){
-            chips.push({label:(row.producto||'')+' Informe',color:'#7b1fa2'});
-          }
-          chips.forEach(function(chip){
-            var chipEl=document.createElement('span');
-            chipEl.className='cal-chip';
-            chipEl.style.background=chip.color;
-            chipEl.textContent=chip.label;
-            chipEl.title=chip.label;
-            chipEl.style.cursor='pointer';
-            chipEl.onclick=function(){ openDetail(row.id); };
-            dayDiv.appendChild(chipEl);
+      for(var i=0;i<42;i++){
+        var d=new Date(start.getFullYear(),start.getMonth(),start.getDate()+i);
+        var iso=isoLocal(d);
+        var cell=document.createElement('div');
+        cell.className='cal-mday'
+          +(d.getMonth()!==viewMonth?' out':'')
+          +(iso===todayISO?' today':'')
+          +((d.getDay()===0||d.getDay()===6)?' weekend':'');
+        var num=document.createElement('div');
+        num.className='dnum';
+        num.textContent=d.getDate();
+        cell.appendChild(num);
+
+        eventosPorFila.forEach(function(evs, ri){
+          evs.forEach(function(ev){
+            if(ev.date!==iso) return;
+            var chip=document.createElement('span');
+            chip.className='cal-chip';
+            chip.style.background=ev.color;
+            chip.textContent=ev.label;
+            chip.title=ev.title;
+            chip.onclick=function(){ openDetail(rows[ri].id); };
+            cell.appendChild(chip);
           });
         });
-        gridEl.appendChild(dayDiv);
+
+        gridEl.appendChild(cell);
       }
     }
-    prevBtn.onclick=function(){ calOffset--; renderCal(); };
-    nextBtn.onclick=function(){ calOffset++; renderCal(); };
+
+    prevBtn.onclick=function(){
+      viewMonth--;
+      if(viewMonth<0){ viewMonth=11; viewYear--; }
+      renderCal();
+    };
+    nextBtn.onclick=function(){
+      viewMonth++;
+      if(viewMonth>11){ viewMonth=0; viewYear++; }
+      renderCal();
+    };
+    hoyBtn.onclick=function(){
+      viewYear=today.getFullYear();
+      viewMonth=today.getMonth();
+      renderCal();
+    };
     renderCal();
   }
 
@@ -619,6 +705,7 @@
     }
 
     $('detailModal').classList.add('hide');
+    $('formCard').style.display='';   // asegura que el formulario este visible
     $('formTitle').textContent='Editar registro';
     ModuleRenderer.renderForm('dynamicForm', moduleSchema, row, me.role==='admin');
     window.scrollTo(0,0);
