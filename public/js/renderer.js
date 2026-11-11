@@ -37,10 +37,14 @@
             break;
           case 'select':
             input = document.createElement('select');
-            const emptyOpt = document.createElement('option');
-            emptyOpt.value = '';
-            emptyOpt.textContent = '— Seleccionar —';
-            input.appendChild(emptyOpt);
+            // El modulo de Ventas conserva el catalogo original, sin opcion vacia:
+            // el primer valor del catalogo es el predeterminado.
+            if(!(schema && schema.id === 'ventas')){
+              const emptyOpt = document.createElement('option');
+              emptyOpt.value = '';
+              emptyOpt.textContent = '— Seleccionar —';
+              input.appendChild(emptyOpt);
+            }
             field.options.forEach(opt => {
               const option = document.createElement('option');
               option.value = opt;

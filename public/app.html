@@ -161,6 +161,15 @@
   var me=null, currentModule='ventas', moduleSchema=null, rows=[], ownerNames={}, moduleUsers=[], editingId=null;
   var currentView='lista';
 
+  // Modulos que conservan el diseno de vista unica: el formulario "Nuevo registro"
+  // arriba y, debajo, la lista de registros en una tarjeta con buscador y boton de
+  // exportar. Es el diseno que tenia el modulo de Ventas antes del rediseno de I+D.
+  var VISTA_UNICA=['ventas'];
+
+  function esVistaUnica(){
+    return VISTA_UNICA.indexOf(currentModule)>=0;
+  }
+
   function api(method, path, body){
     return fetch(path,{method:method,headers:{'Content-Type':'application/json'},
       credentials:'same-origin',body:body?JSON.stringify(body):undefined}).then(function(r){
@@ -217,7 +226,8 @@
       if(res.ok){
         moduleSchema=res.data;
         $('moduleTitle').textContent=moduleSchema.name;
-        $('moduleSubtitle').textContent='Modulo activo';
+        // El modulo de Ventas conserva el subtitulo original.
+        $('moduleSubtitle').textContent=esVistaUnica()?'Módulo activo':'Modulo activo';
         // Cargar usuarios para userselect
         if(res.data.users && Array.isArray(res.data.users)){
           moduleUsers=res.data.users;
@@ -239,6 +249,9 @@
     var views=moduleSchema.schema.views||{};
     var tabsDiv=$('viewTabs');
     tabsDiv.innerHTML='';
+    // Los modulos de vista unica (Ventas) no muestran barra de pestanas.
+    if(esVistaUnica()){ tabsDiv.style.display='none'; return; }
+    tabsDiv.style.display='';
     for(var viewKey in views){
       if(!views[viewKey].enabled) continue;
       (function(key, v){
@@ -275,6 +288,23 @@
   function renderCurrentView(){
     var container=$('viewContainer');
     container.innerHTML='';
+
+    // Ubicacion del formulario "Nuevo registro":
+    //  - vista unica (Ventas): va ARRIBA, antes de la lista (diseno original).
+    //  - modulos con pestanas (I+D): va ABAJO de la vista activa.
+    var mv=$('moduleView');
+    var formCard=$('formCard');
+    if(esVistaUnica()){
+      if(formCard.nextElementSibling!==container) mv.insertBefore(formCard, container);
+    } else if(mv.lastElementChild!==formCard){
+      mv.appendChild(formCard);
+    }
+
+    // Los modulos de vista unica conservan su propia estructura.
+    if(esVistaUnica()){
+      renderVistaUnica();
+      return;
+    }
 
     // El formulario "Nuevo registro" solo se muestra en la pestana Lista.
     // En Calendario, Cronograma y Resumen queda solo el contenido de la vista.
@@ -343,6 +373,62 @@
       cards.forEach(function(card){
         var text=card.textContent.toLowerCase();
         card.style.display=text.includes(term)?'':'none';
+      });
+    });
+  }
+
+  // Diseno original del modulo de Ventas (antes del rediseno de I+D):
+  // una sola vista con el formulario "Nuevo registro" y, debajo, una tarjeta
+  // que agrupa el buscador, el boton de exportar y la lista de registros.
+  function renderVistaUnica(){
+    var container=$('viewContainer');
+    var formCard=$('formCard');
+    formCard.style.display='';
+
+    var card=document.createElement('div');
+    card.className='card';
+
+    var bar=document.createElement('div');
+    bar.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:12px';
+    var searchInput=document.createElement('input');
+    searchInput.id='searchInput';
+    searchInput.placeholder='Buscar...';
+    searchInput.style.flex='1';
+    bar.appendChild(searchInput);
+    var exportBtn=document.createElement('button');
+    exportBtn.className='ghost small';
+    exportBtn.id='exportBtn';
+    exportBtn.textContent='Exportar a Excel';
+    exportBtn.onclick=exportVentas;
+    bar.appendChild(exportBtn);
+    card.appendChild(bar);
+
+    var list=document.createElement('div');
+    list.id='rowsList';
+    card.appendChild(list);
+
+    var empty=document.createElement('div');
+    empty.id='emptyMsg';
+    empty.className='center muted hide';
+    empty.textContent='Sin registros todavia.';
+    card.appendChild(empty);
+
+    container.appendChild(card);
+
+    $('emptyMsg').classList.toggle('hide', rows.length>0);
+    rows.forEach(function(row){
+      var c=ModuleRenderer.renderCard(row, moduleSchema, ownerNames, me);
+      c.onclick=function(){ openDetail(row.id); };
+      list.appendChild(c);
+    });
+
+    // Search filter
+    searchInput.addEventListener('input',function(){
+      var term=searchInput.value.toLowerCase();
+      var cards=list.querySelectorAll('.act');
+      cards.forEach(function(c){
+        var text=c.textContent.toLowerCase();
+        c.style.display=text.includes(term)?'':'none';
       });
     });
   }
@@ -656,11 +742,16 @@
 
     api(method, url, values).then(function(res){
       if(res.ok){
+        var row=res.data&&res.data.row;
+        var eraNuevo=!!(row&&row.clientePotencial);
         loadRows();
         renderForm();
         editingId=null;
         $('formTitle').textContent='Nuevo registro';
-        toast('Registro guardado correctamente.');
+        // Confirmación: el nombre escrito no estaba en el listado maestro.
+        if(eraNuevo) toast('Cliente nuevo guardado como potencial: '+values.cliente
+          +'. Tu supervisor puede agregarlo al listado.');
+        else toast('Registro guardado correctamente.');
       } else {
         alert(res.data.error||'Error al guardar');
       }
@@ -678,12 +769,12 @@
       document.body.appendChild(el);
     }
     el.textContent=texto; el.style.display='block';
-    clearTimeout(el._t); el._t=setTimeout(function(){ el.style.display='none'; },3500);
+    clearTimeout(el._t); el._t=setTimeout(function(){ el.style.display='none'; }, esVistaUnica()?4500:3500);
   }
 
   $('deleteBtn').onclick=function(){
     if(!editingId) return;
-    if(!confirm('Eliminar este registro?')) return;
+    if(!confirm(esVistaUnica()?'¿Eliminar este registro?':'Eliminar este registro?')) return;
 
     api('DELETE','/api/modules/'+currentModule+'/rows/'+editingId).then(function(res){
       if(res.ok){
@@ -717,6 +808,36 @@
   };
 
   // ---- Exportaciones ----
+
+  // Exportacion original del modulo de Ventas: una columna por campo del modulo,
+  // con el vendedor al inicio y las fechas de creacion/actualizacion al final.
+  function exportVentas(){
+    if(typeof RainbowXLSX==='undefined'){ alert('No se pudo cargar el generador de Excel. Recarga la página con Ctrl+F5.'); return; }
+    if(!moduleSchema || !rows.length){ alert('No hay registros para exportar.'); return; }
+    var fields=moduleSchema.schema.fields||[];
+    var cols=[{label:'Vendedor',width:24,type:'text'}];
+    fields.forEach(function(f){
+      cols.push({
+        label:f.label,
+        width:(f.type==='textarea'?38:(f.type==='number'?22:20)),
+        type:(f.type==='date'?'date':(f.type==='number'?'number':'text'))
+      });
+    });
+    cols.push({label:'Creado',width:22,type:'text'},{label:'Actualizado',width:22,type:'text'});
+    var data=rows.map(function(r){
+      var arr=[ownerNames[r.ownerId]||'—'];
+      fields.forEach(function(f){
+        var v=r[f.name];
+        if(f.type==='number') arr.push(Number(v)||0);
+        else arr.push(v==null?'':String(v));
+      });
+      arr.push(r.createdAt?new Date(r.createdAt).toLocaleString('es-PE'):'');
+      arr.push(r.updatedAt?new Date(r.updatedAt).toLocaleString('es-PE'):'');
+      return arr;
+    });
+    RainbowXLSX.descargar(currentModule+'_'+new Date().toISOString().slice(0,10)+'.xlsx',
+      [{name:'Registros',cols:cols,rows:data}]);
+  }
 
   // Lista a Excel (schema-driven)
   function exportToList(){
