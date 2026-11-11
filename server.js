@@ -16,6 +16,9 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const MODULES_DIR = path.join(__dirname, 'modules');
 const SESSION_COOKIE = 'sid';
 const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
+// Id de build: cambia en cada despliegue (el proceso se reinicia en Render).
+// Se inyecta en el HTML como "?v=__BUILD__" para romper la cache del navegador.
+const BUILD_ID = Date.now().toString(36);
 
 const ESTADOS = ['Planificado', 'En curso', 'Realizado', 'No realizado'];
 const ROLES = ['admin', 'supervisor', 'coordinador', 'retail', 'kam', 'promotor'];
@@ -590,8 +593,32 @@ const server = http.createServer(async (req, res) => {
           '.txt': 'text/plain; charset=utf-8',
         };
         const ct = types[ext] || 'application/octet-stream';
-        const cacheCtl = ext === '.html' ? 'no-store, no-cache, must-revalidate' : 'public, max-age=3600';
-        res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': cacheCtl });
+        const stat = fs.statSync(file);
+        // El HTML se sirve siempre fresco y con el id de build inyectado en los
+        // "?v=__BUILD__" de los scripts: asi el navegador NUNCA queda con un
+        // JS/CSS de una version anterior (antes el JS se cacheaba 1 hora).
+        if (ext === '.html') {
+          const html = fs.readFileSync(file, 'utf8').split('__BUILD__').join(BUILD_ID);
+          res.writeHead(200, {
+            'Content-Type': ct,
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Content-Length': Buffer.byteLength(html)
+          });
+          return res.end(html);
+        }
+        // El resto de archivos: revalidacion condicional con ETag. El navegador
+        // siempre consulta al servidor y recibe 304 si el archivo no cambio.
+        const etag = '"' + stat.size.toString(16) + '-' + stat.mtimeMs.toString(16) + '"';
+        if (req.headers['if-none-match'] === etag) {
+          res.writeHead(304, { 'ETag': etag, 'Cache-Control': 'no-cache, must-revalidate' });
+          return res.end();
+        }
+        res.writeHead(200, {
+          'Content-Type': ct,
+          'Cache-Control': 'no-cache, must-revalidate',
+          'ETag': etag,
+          'Last-Modified': stat.mtime.toUTCString()
+        });
         return fs.createReadStream(file).pipe(res);
       }
       if (rel === '/index.html') return sendJSON(res, 404, { error: 'No encontrado' });
