@@ -271,9 +271,9 @@
     var container=$('viewContainer');
     container.innerHTML='';
 
-    // En la pestana Calendario solo va el calendario: se oculta el formulario
-    // de "Nuevo registro".
-    $('formCard').style.display=(currentView==='calendario')?'none':'';
+    // El formulario "Nuevo registro" solo se muestra en la pestana Lista.
+    // En Calendario, Cronograma y Resumen queda solo el contenido de la vista.
+    $('formCard').style.display=(currentView==='lista')?'':'none';
 
     // Barra de herramientas (buscar + exportar)
     var toolbar=document.createElement('div');
