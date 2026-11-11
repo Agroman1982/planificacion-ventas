@@ -388,6 +388,94 @@ function etiquetaSemanaDesdeFecha(iso) {
   return 'Sem ' + n + ' (' + rango + ')';
 }
 
+// ---------------- I+D: actividades y estado derivado ----------------
+// Las ACTIVIDADES son los campos que se completan al ingresar un ensayo.
+// El estado general y los campos "legacy" (usados por calendario, cronograma,
+// dashboard y exportaciones) se derivan automaticamente de ellas.
+function normalizarActividades(val, template) {
+  const tpl = Array.isArray(template) ? template : [];
+  const base = (Array.isArray(val) && val.length) ? val : tpl.map(() => ({}));
+  return base.map((a, idx) => {
+    const ref = tpl[idx] || {};
+    const pick = (k, def) => (a[k] !== undefined && a[k] !== null && a[k] !== '')
+      ? a[k] : (ref[k] !== undefined ? ref[k] : def);
+    return {
+      key: String(pick('key', 'act_' + idx)).slice(0, 60),
+      nombre: String(pick('nombre', 'Actividad ' + (idx + 1))).slice(0, 120),
+      grupo: String(pick('grupo', '')).slice(0, 80),
+      tipoFecha: (a.tipoFecha === 'rango' || (a.tipoFecha === undefined && ref.tipoFecha === 'rango')) ? 'rango' : 'exacta',
+      esEvaluacion: !!(a.esEvaluacion !== undefined ? a.esEvaluacion : ref.esEvaluacion),
+      adjunto: !!(a.adjunto !== undefined ? a.adjunto : ref.adjunto),
+      fechaPlan: String(a.fechaPlan || '').slice(0, 10),
+      fechaPlanFin: String(a.fechaPlanFin || '').slice(0, 10),
+      fechaEjec: String(a.fechaEjec || '').slice(0, 10),
+      fechaEjecFin: String(a.fechaEjecFin || '').slice(0, 10),
+      ejecutado: !!a.ejecutado,
+      archivo: String(a.archivo || '').slice(0, 500)
+    };
+  });
+}
+
+function estadoDesdeActividades(acts, suspendido) {
+  if (suspendido === 'Si') return 'Suspendido';
+  if (!Array.isArray(acts) || !acts.length) return 'Producto potencial';
+  let last = -1;
+  acts.forEach((a, i) => { if (a.ejecutado) last = i; });
+  if (last < 0) return 'Producto potencial';
+  const a = acts[last];
+  const map = {
+    solicitudMuestras: 'Muestras solicitadas',
+    recepcionMuestras: 'Protocolo en elaboracion',
+    elaboracionProtocolo: 'Protocolo aprobado',
+    ubicacionCampo: 'Busqueda de campos',
+    instalacion: 'Instalacion',
+    elaboracionInforme: 'Gabinete',
+    presentacionInforme: 'Completado'
+  };
+  if (a.esEvaluacion) return 'Evaluaciones en curso';
+  if (map[a.key]) return map[a.key];
+  if (last === acts.length - 1 && acts.every(x => x.ejecutado)) return 'Completado';
+  return 'Evaluaciones en curso';
+}
+
+// Deriva campos de compatibilidad para que Calendario / Cronograma / Resumen /
+// exportaciones sigan funcionando sin reescribir cada vista.
+function derivarCamposID(out, body) {
+  const acts = out.actividades || [];
+  const get = k => acts.find(a => a.key === k) || {};
+  const sol = get('solicitudMuestras');
+  const rec = get('recepcionMuestras');
+  const proto = get('elaboracionProtocolo');
+  const inst = get('instalacion');
+  const inf = get('elaboracionInforme');
+  const pres = get('presentacionInforme');
+
+  out.estadoGeneral = estadoDesdeActividades(acts, out.suspendido);
+  out.fechaMuestras = sol.fechaEjec || sol.fechaPlan || '';
+  out.fechaInstalacion = inst.fechaEjec || inst.fechaPlan || '';
+  out.fechaInformePlanificada = inf.fechaPlan || inf.fechaPlanFin || pres.fechaPlan || '';
+  out.protocoloLink = proto.archivo || '';
+  out.estadoMuestras = rec.ejecutado ? 'Recibidas' : (sol.ejecutado ? 'Solicitadas' : 'No solicitadas');
+  out.estadoProtocolo = proto.ejecutado ? 'Aprobado' : 'Pendiente';
+  out.campo1Rtc = out.representante || '';
+  out.campo2Rtc = '';
+  out.campo1Ubicacion = out.ubicacionEnsayo || '';
+  out.campo2Ubicacion = '';
+  out.campo1Cliente = '';
+  out.campo2Cliente = '';
+  out.evaluaciones = acts.filter(a => a.esEvaluacion).map(a => ({
+    tipo: a.nombre,
+    fechaPlanificada: a.fechaPlan || '',
+    fechaReal: a.fechaEjec || '',
+    estado: a.ejecutado ? 'Realizada' : 'Pendiente',
+    observaciones: ''
+  }));
+  // Conservar texto legacy si venia de un registro antiguo (no se muestra en el nuevo detalle).
+  ['descripcion', 'tratamientos', 'variablesEvaluar'].forEach(k => {
+    if (typeof body[k] === 'string') out[k] = body[k].trim().slice(0, 500);
+  });
+}
+
 // ---------------- Validación de filas (schema-driven) ----------------
 function cleanRowInput(body, schema, ownerId, isAdmin) {
   const out = { ownerId };
@@ -434,6 +522,14 @@ function cleanRowInput(body, schema, ownerId, isAdmin) {
           out[field.name] = [];
         }
         break;
+      case 'activities':
+        // Lista de ACTIVIDADES del ensayo. Si no se envia, se construye desde
+        // la plantilla definida en el module.json (11 actividades por defecto).
+        {
+          const schemaObj = (schema && schema.schema) || {};
+          out[field.name] = normalizarActividades(val, schemaObj.actividadesTemplate);
+        }
+        break;
       case 'textarea':
       case 'text':
       default:
@@ -459,7 +555,10 @@ function cleanRowInput(body, schema, ownerId, isAdmin) {
   if (semanaField && !isAdmin) {
     out[semanaField.name] = etiquetaSemanaDesdeFecha(out.dia || body.dia);
   }
-  
+
+  // I+D: el estado y los campos de compatibilidad se derivan de las ACTIVIDADES.
+  if (schema && schema.id === 'i-d') derivarCamposID(out, body);
+
   return out;
 }
 
@@ -613,10 +712,11 @@ const server = http.createServer(async (req, res) => {
       let rows = moduleData.rows || [];
 
       // Visibilidad para I+D: admin, supervisor y coordinador ven todo.
-      // Los retail/kam ven solo los ensayos donde estan asignados como campo1Rtc o campo2Rtc.
+      // Retail/KAM/promotor ven solo los ensayos donde son el representante
+      // (se conservan campo1Rtc/campo2Rtc para registros migrados).
       if (moduleId === 'i-d') {
         if (me.role !== 'admin' && me.role !== 'supervisor' && me.role !== 'coordinador') {
-          rows = rows.filter(r => r.campo1Rtc === me.id || r.campo2Rtc === me.id);
+          rows = rows.filter(r => r.representante === me.id || r.campo1Rtc === me.id || r.campo2Rtc === me.id);
         }
       } else {
         // Visibilidad estandar (jerarquia transitoria)

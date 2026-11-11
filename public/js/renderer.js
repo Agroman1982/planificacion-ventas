@@ -23,7 +23,7 @@
       
       fields.forEach(field => {
         const wrapper = document.createElement('div');
-        if (field.type === 'textarea' || field.type === 'evaluations') wrapper.style.gridColumn = '1/-1';
+        if (field.type === 'textarea' || field.type === 'evaluations' || field.type === 'activities') wrapper.style.gridColumn = '1/-1';
         
         const label = document.createElement('label');
         label.textContent = field.label + (field.required ? ' *' : '');
@@ -77,6 +77,11 @@
             wrapper.appendChild(input);
             grid.appendChild(wrapper);
             return; // ya se agrego el wrapper
+          case 'activities':
+            input = this.renderActivitiesEditor(field, values, schema && schema.schema);
+            wrapper.appendChild(input);
+            grid.appendChild(wrapper);
+            return; // ya se agrego el wrapper
           default:
             input = document.createElement('input');
             input.type = 'text';
@@ -86,6 +91,7 @@
         input.name = field.name;
         if (field.required) input.required = true;
         if (values && values[field.name] !== undefined) input.value = values[field.name];
+        else if (field.type === 'select' && field.default !== undefined) input.value = field.default;
         if (field.placeholder) input.placeholder = field.placeholder;
         if (field.autoFill && !isAdmin) {
           input.readOnly = true;
@@ -224,6 +230,226 @@
       return container;
     },
     
+    // ---- ACTIVIDADES (I+D) -------------------------------------------------
+    // Plantilla por defecto: 11 actividades, 4 evaluaciones flexibles.
+    // Cada actividad: key, nombre, grupo, tipoFecha ('exacta' | 'rango'),
+    // esEvaluacion, adjunto, fechaPlan, fechaPlanFin, fechaEjec, fechaEjecFin,
+    // ejecutado, archivo.
+    defaultActivities(schemaObj) {
+      const tpl = (schemaObj && Array.isArray(schemaObj.actividadesTemplate))
+        ? schemaObj.actividadesTemplate : [];
+      return tpl.map((t, i) => ({
+        key: t.key || ('act_' + i),
+        nombre: t.nombre || ('Actividad ' + (i + 1)),
+        grupo: t.grupo || '',
+        tipoFecha: t.tipoFecha === 'rango' ? 'rango' : 'exacta',
+        esEvaluacion: !!t.esEvaluacion,
+        adjunto: !!t.adjunto,
+        fechaPlan: '', fechaPlanFin: '', fechaEjec: '', fechaEjecFin: '',
+        ejecutado: false, archivo: ''
+      }));
+    },
+
+    // Lee las actividades desde el DOM del editor
+    collectActivities(container) {
+      const acts = [];
+      if (!container) return acts;
+      container.querySelectorAll('.act-row').forEach(rowEl => {
+        const a = {};
+        rowEl.querySelectorAll('[data-act-field]').forEach(inp => {
+          a[inp.dataset.actField] = inp.type === 'checkbox' ? inp.checked : inp.value;
+        });
+        a.esEvaluacion = a.esEvaluacion === true || a.esEvaluacion === 'true';
+        a.adjunto = a.adjunto === true || a.adjunto === 'true';
+        a.ejecutado = !!a.ejecutado;
+        acts.push(a);
+      });
+      return acts;
+    },
+
+    // Crea una celda con uno o dos inputs de fecha segun tipoFecha
+    activityDateCell(a, campoInicio, campoFin) {
+      const cell = document.createElement('div');
+      const rango = a.tipoFecha === 'rango';
+      cell.style.cssText = 'display:flex;' + (rango ? 'flex-direction:column' : 'flex-direction:row')
+        + ';gap:3px;align-items:stretch';
+      const mk = (name, val, title) => {
+        const inp = document.createElement('input');
+        inp.type = 'date';
+        inp.dataset.actField = name;
+        inp.value = val || '';
+        inp.title = title;
+        inp.style.cssText = 'flex:1;min-width:0;width:100%;padding:4px 5px;font-size:11px;'
+          + 'border:1px solid var(--line);border-radius:6px;background:#fff';
+        return inp;
+      };
+      cell.appendChild(mk(campoInicio, a[campoInicio], rango ? 'Inicio' : 'Fecha'));
+      if (rango) {
+        cell.appendChild(mk(campoFin, a[campoFin], 'Fin'));
+      } else {
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.dataset.actField = campoFin;
+        hidden.value = '';
+        cell.appendChild(hidden);
+      }
+      return cell;
+    },
+
+    // Editor de ACTIVIDADES para el formulario de nuevo registro / edicion
+    renderActivitiesEditor(field, values, schemaObj) {
+      const self = this;
+      const container = document.createElement('div');
+      container.className = 'act-editor';
+      container.id = 'field_' + field.name;
+      container.style.cssText = 'border:1px solid var(--line);border-radius:12px;padding:12px;background:#f8fafc';
+
+      let acts = (values && Array.isArray(values[field.name]) && values[field.name].length)
+        ? JSON.parse(JSON.stringify(values[field.name]))
+        : this.defaultActivities(schemaObj);
+
+      const list = document.createElement('div');
+      list.className = 'act-list';
+      container.appendChild(list);
+
+      const GRID = 'display:grid;grid-template-columns:minmax(130px,1.4fr) minmax(105px,1fr) minmax(105px,1fr) 28px 26px;gap:6px';
+
+      const makeRow = (a) => {
+        const row = document.createElement('div');
+        row.className = 'act-row';
+        row.style.cssText = GRID + ';align-items:center;padding:6px 0;border-bottom:1px solid #e2e8f0';
+
+        // Metadatos ocultos (viajan con la fila)
+        const meta = {
+          key: a.key || '', nombre: a.nombre || '', grupo: a.grupo || '',
+          tipoFecha: a.tipoFecha === 'rango' ? 'rango' : 'exacta',
+          esEvaluacion: !!a.esEvaluacion, adjunto: !!a.adjunto
+        };
+        Object.keys(meta).forEach(k => {
+          const h = document.createElement('input');
+          h.type = 'hidden';
+          h.dataset.actField = k;
+          h.value = String(meta[k]);
+          row.appendChild(h);
+        });
+
+        const lbl = document.createElement('div');
+        lbl.style.cssText = 'font-size:12px;font-weight:600;line-height:1.25';
+        lbl.textContent = a.nombre || 'Actividad';
+        row.appendChild(lbl);
+
+        row.appendChild(self.activityDateCell(a, 'fechaPlan', 'fechaPlanFin'));
+        row.appendChild(self.activityDateCell(a, 'fechaEjec', 'fechaEjecFin'));
+
+        const chkWrap = document.createElement('div');
+        chkWrap.style.textAlign = 'center';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.dataset.actField = 'ejecutado';
+        chk.checked = !!a.ejecutado;
+        chk.title = 'Marcar como ejecutada';
+        chk.style.cssText = 'width:17px;height:17px;cursor:pointer';
+        chkWrap.appendChild(chk);
+        row.appendChild(chkWrap);
+
+        const rmWrap = document.createElement('div');
+        if (a.esEvaluacion) {
+          const rm = document.createElement('button');
+          rm.type = 'button';
+          rm.className = 'small';
+          rm.textContent = 'X';
+          rm.title = 'Quitar evaluacion';
+          rm.style.cssText = 'background:var(--bad);color:#fff;padding:3px 6px;border-radius:6px;font-size:11px';
+          rm.onclick = function() { row.remove(); };
+          rmWrap.appendChild(rm);
+        }
+        row.appendChild(rmWrap);
+
+        // Campo adjunto (solo Elaboracion de protocolo)
+        if (a.adjunto) {
+          const att = document.createElement('div');
+          att.style.cssText = 'grid-column:1/-1;display:flex;align-items:center;gap:6px;margin:2px 0 6px';
+          const attLbl = document.createElement('span');
+          attLbl.style.cssText = 'font-size:11px;color:var(--muted);white-space:nowrap';
+          attLbl.textContent = 'Adjuntar protocolo:';
+          const attInp = document.createElement('input');
+          attInp.type = 'text';
+          attInp.dataset.actField = 'archivo';
+          attInp.value = a.archivo || '';
+          attInp.placeholder = 'Link o nombre del archivo del protocolo';
+          attInp.style.cssText = 'flex:1;padding:5px 8px;font-size:11px';
+          att.appendChild(attLbl);
+          att.appendChild(attInp);
+          row.appendChild(att);
+        } else {
+          const h = document.createElement('input');
+          h.type = 'hidden';
+          h.dataset.actField = 'archivo';
+          h.value = a.archivo || '';
+          row.appendChild(h);
+        }
+        return row;
+      };
+
+      const renderAll = () => {
+        list.innerHTML = '';
+        const head = document.createElement('div');
+        head.style.cssText = GRID + ';font-size:10px;color:var(--muted);font-weight:700;'
+          + 'text-transform:uppercase;padding-bottom:6px;border-bottom:2px solid var(--line)';
+        head.innerHTML = '<div>Actividad</div><div>F. Programacion</div><div>F. Ejecucion</div>'
+          + '<div style="text-align:center">&#10003;</div><div></div>';
+        list.appendChild(head);
+
+        let lastGrupo = null;
+        acts.forEach(a => {
+          if (a.grupo && a.grupo !== lastGrupo) {
+            const gh = document.createElement('div');
+            gh.style.cssText = 'font-size:11px;font-weight:700;color:var(--brand);'
+              + 'margin-top:10px;padding:4px 0;border-bottom:1px dashed var(--line)';
+            gh.textContent = '\u25b8 ' + a.grupo;
+            list.appendChild(gh);
+          }
+          lastGrupo = a.grupo;
+          list.appendChild(makeRow(a));
+        });
+      };
+      renderAll();
+
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'small';
+      addBtn.style.cssText = 'background:var(--brand);color:#fff;margin-top:10px;font-size:12px';
+      addBtn.textContent = '+ Agregar evaluacion';
+      addBtn.onclick = function() {
+        const current = self.collectActivities(container);
+        let lastEval = -1, nEval = 0;
+        current.forEach((a, i) => {
+          if (a.esEvaluacion) { lastEval = i; nEval++; }
+        });
+        const nueva = {
+          key: 'eval_' + Date.now(),
+          nombre: 'Evaluacion ' + (nEval + 1),
+          grupo: 'Ensayo de campo',
+          tipoFecha: 'exacta',
+          esEvaluacion: true, adjunto: false,
+          fechaPlan: '', fechaPlanFin: '', fechaEjec: '', fechaEjecFin: '',
+          ejecutado: false, archivo: ''
+        };
+        current.splice(lastEval >= 0 ? lastEval + 1 : current.length, 0, nueva);
+        acts = current;
+        renderAll();
+      };
+      container.appendChild(addBtn);
+
+      const hint = document.createElement('div');
+      hint.style.cssText = 'font-size:11px;color:var(--muted);margin-top:8px';
+      hint.textContent = 'Las fechas de programacion se registran al crear el ensayo. '
+        + 'La fecha de ejecucion y el check se marcan cuando la actividad se realiza.';
+      container.appendChild(hint);
+
+      return container;
+    },
+
     // Extraer valores del formulario
     getFormValues(schema) {
       if (!schema || !schema.schema || !schema.schema.fields) return {};
@@ -245,6 +471,8 @@
             });
           }
           values[field.name] = evals;
+        } else if (field.type === 'activities') {
+          values[field.name] = this.collectActivities(document.getElementById('field_' + field.name));
         } else {
           const input = document.getElementById('field_' + field.name);
           if (input) {
@@ -720,278 +948,220 @@
     },
 
     // Renderizar detalle de I+D con layout de dos columnas:
-    // izquierda: info del producto; derecha: timeline de actividades.
+    // izquierda: SOLO informacion basica del ensayo (7 campos);
+    // derecha: timeline de ACTIVIDADES con F. Programacion / F. Ejecucion y check.
     renderIDDetail(row, schema, users, onUpdate) {
       const container = document.createElement('div');
       container.className = 'id-detail';
-      container.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:16px';
+      container.style.cssText = 'display:grid;grid-template-columns:1fr 1.25fr;gap:16px';
       if(window.innerWidth < 640) container.style.gridTemplateColumns = '1fr';
-      
-      const states = schema.schema.states || {};
+
+      const states = (schema && schema.schema && schema.schema.states) || {};
       const stateColors = states.colors || {};
-      
-      // ---- Columna izquierda: info del producto ----
+      const schemaObj = (schema && schema.schema) || {};
+
+      // ---- Columna izquierda: SOLO informacion basica del ensayo ----
       const left = document.createElement('div');
-      
-      const infoFields = [
-        { name: 'producto', label: 'Producto' },
-        { name: 'tipoProducto', label: 'Tipo de producto' },
-        { name: 'descripcion', label: 'Descripcion', full: true },
-        { name: 'protocoloLink', label: 'Protocolo (archivo/link)', full: true },
-        { name: 'tratamientos', label: 'Tratamientos', full: true },
-        { name: 'variablesEvaluar', label: 'Variables a evaluar', full: true },
-        { name: 'observaciones', label: 'Observaciones', full: true }
-      ];
-      
-      infoFields.forEach(f => {
-        const value = row[f.name];
-        if(value === '' || value === null || value === undefined) return;
+      left.style.cssText = 'background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px';
+
+      const leftTitle = document.createElement('h2');
+      leftTitle.style.cssText = 'font-size:15px;margin:0 0 12px';
+      leftTitle.textContent = 'Datos del ensayo';
+      left.appendChild(leftTitle);
+
+      const labels = {
+        producto: 'Producto',
+        tipoProducto: 'Tipo de producto',
+        plaga: 'Plaga',
+        cultivo: 'Cultivo',
+        representante: 'Representante (Promotor o RTC)',
+        ubicacionEnsayo: 'Ubicacion del ensayo',
+        observaciones: 'Observaciones'
+      };
+      const basicFields = Array.isArray(schemaObj.basicDetailFields)
+        ? schemaObj.basicDetailFields
+        : ['producto', 'tipoProducto', 'plaga', 'cultivo', 'representante', 'ubicacionEnsayo', 'observaciones'];
+
+      basicFields.forEach(k => {
+        let val = row[k];
+        if(k === 'representante') {
+          const u = (users || []).find(x => x.id === row[k]);
+          val = u ? u.name + ' (' + (u.role === 'promotor' ? 'Promotor' : (u.role === 'kam' ? 'KAM' : 'RTC')) + ')' : '';
+        }
         const div = document.createElement('div');
         div.style.marginBottom = '10px';
-        if(f.full) div.style.gridColumn = '1/-1';
-        const label = document.createElement('div');
-        label.className = 'k';
-        label.textContent = f.label;
-        const valDiv = document.createElement('div');
-        valDiv.className = 'v';
-        valDiv.textContent = value;
-        div.appendChild(label);
-        div.appendChild(valDiv);
+        const lbl = document.createElement('div');
+        lbl.className = 'k';
+        lbl.textContent = labels[k] || k;
+        const v = document.createElement('div');
+        v.className = 'v';
+        v.style.whiteSpace = 'pre-wrap';
+        v.textContent = (val === '' || val === null || val === undefined) ? '\u2014' : val;
+        div.appendChild(lbl);
+        div.appendChild(v);
         left.appendChild(div);
       });
-      
-      // Campos experimentales (2 columnas)
-      const campos = [
-        { num: 1, rtc: row.campo1Rtc, ubicacion: row.campo1Ubicacion, cliente: row.campo1Cliente },
-        { num: 2, rtc: row.campo2Rtc, ubicacion: row.campo2Ubicacion, cliente: row.campo2Cliente }
-      ];
-      campos.forEach(c => {
-        if(!c.rtc && !c.ubicacion && !c.cliente) return;
-        const div = document.createElement('div');
-        div.style.cssText = 'background:#f8f9fa;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px';
-        const title = document.createElement('div');
-        title.style.cssText = 'font-weight:700;font-size:13px;margin-bottom:6px';
-        title.textContent = 'Campo ' + c.num;
-        div.appendChild(title);
-        
-        const u = (users || []).find(x => x.id === c.rtc);
-        if(u) div.innerHTML += '<div class="k">RTC / Responsable</div><div class="v">' + this.esc(u.name) + ' (' + (u.role === 'promotor' ? 'Promotor' : (u.role === 'kam' ? 'KAM' : 'RTC')) + ')</div>';
-        if(c.ubicacion) div.innerHTML += '<div class="k">Ubicacion</div><div class="v">' + this.esc(c.ubicacion) + '</div>';
-        if(c.cliente) div.innerHTML += '<div class="k">Cliente / Propietario</div><div class="v">' + this.esc(c.cliente) + '</div>';
-        left.appendChild(div);
-      });
-      
+
       container.appendChild(left);
-      
-      // ---- Columna derecha: timeline de actividades ----
+
+      // ---- Columna derecha: ACTIVIDADES ----
       const right = document.createElement('div');
       right.style.cssText = 'background:#f8f9fa;border:1px solid var(--line);border-radius:12px;padding:14px';
-      
+
       const title = document.createElement('h2');
-      title.style.cssText = 'font-size:15px;margin:0 0 12px';
-      title.textContent = 'Actividades';
+      title.style.cssText = 'font-size:15px;margin:0 0 4px';
+      title.textContent = 'ACTIVIDADES';
       right.appendChild(title);
-      
-      const today = new Date().toISOString().slice(0, 10);
+
+      const acts = (Array.isArray(row.actividades) && row.actividades.length)
+        ? JSON.parse(JSON.stringify(row.actividades))
+        : this.defaultActivities(schemaObj);
+
+      const realizadas = acts.filter(a => a.ejecutado).length;
+      const progreso = document.createElement('div');
+      progreso.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:10px';
+      progreso.textContent = realizadas + ' de ' + acts.length + ' actividades ejecutadas';
+      right.appendChild(progreso);
+
       const canUpdate = typeof onUpdate === 'function';
-      
-      // Helper para crear fila de actividad
-      const createActivityRow = (opts) => {
-        const { label, done, progDate, execDate, onCheck, onDateChange, dateEditable } = opts;
-        const rowDiv = document.createElement('div');
-        rowDiv.style.cssText = 'display:grid;grid-template-columns:1fr 90px 90px 28px;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:12px';
-        
-        // Label
-        const lbl = document.createElement('div');
-        lbl.style.cssText = 'font-weight:600' + (done ? ';text-decoration:line-through;color:#64748b' : '');
-        lbl.textContent = label;
-        rowDiv.appendChild(lbl);
-        
-        // Fecha programacion
-        const fpWrap = document.createElement('div');
-        fpWrap.style.textAlign = 'center';
-        const fpLabel = document.createElement('div');
-        fpLabel.style.cssText = 'font-size:9px;color:var(--muted);text-transform:uppercase';
-        fpLabel.textContent = 'F. Program.';
-        const fpVal = document.createElement('div');
-        fpVal.textContent = progDate || '—';
-        fpWrap.appendChild(fpLabel);
-        fpWrap.appendChild(fpVal);
-        rowDiv.appendChild(fpWrap);
-        
-        // Fecha ejecucion
-        const feWrap = document.createElement('div');
-        feWrap.style.textAlign = 'center';
-        const feLabel = document.createElement('div');
-        feLabel.style.cssText = 'font-size:9px;color:var(--muted);text-transform:uppercase';
-        feLabel.textContent = 'F. Ejecuc.';
-        const feVal = document.createElement('input');
-        feVal.type = 'date';
-        feVal.value = execDate || '';
-        feVal.style.cssText = 'width:100%;padding:2px;font-size:11px;border:1px solid ' + (done ? '#22c55e' : '#cbd5e1') + ';border-radius:4px';
-        feVal.disabled = !canUpdate || done;
-        if(dateEditable && canUpdate && !done) {
-          feVal.onchange = function() { if(onDateChange) onDateChange(feVal.value); };
+      const today = new Date().toISOString().slice(0, 10);
+      const GRID = 'display:grid;grid-template-columns:minmax(105px,1.3fr) minmax(84px,1fr) minmax(84px,1fr) 26px;gap:5px';
+
+      const head = document.createElement('div');
+      head.style.cssText = GRID + ';font-size:9px;color:var(--muted);font-weight:700;'
+        + 'text-transform:uppercase;padding-bottom:5px;border-bottom:2px solid var(--line)';
+      head.innerHTML = '<div>Actividad</div><div style="text-align:center">F. Program.</div>'
+        + '<div style="text-align:center">F. Ejecuc.</div><div style="text-align:center">&#10003;</div>';
+      right.appendChild(head);
+
+      const fmtFecha = (a, ini, fin) => {
+        if(a.tipoFecha === 'rango') {
+          const i = a[ini] || '', f = a[fin] || '';
+          if(i && f) return i.slice(5) + ' \u2192 ' + f.slice(5);
+          return i || f || '\u2014';
         }
-        feWrap.appendChild(feLabel);
-        feWrap.appendChild(feVal);
-        rowDiv.appendChild(feWrap);
-        
-        // Checkbox
+        return a[ini] || '\u2014';
+      };
+
+      const updateAct = (idx, patch) => {
+        const next = JSON.parse(JSON.stringify(acts));
+        Object.assign(next[idx], patch);
+        if(onUpdate) onUpdate({ actividades: next });
+      };
+
+      // Inputs de fecha de ejecucion (uno para fecha exacta, dos para rango)
+      const execCell = (a, idx) => {
+        const cell = document.createElement('div');
+        cell.style.cssText = 'display:flex;flex-direction:column;gap:2px';
+        const mk = (name, val, hint) => {
+          const inp = document.createElement('input');
+          inp.type = 'date';
+          inp.value = val || '';
+          inp.title = hint;
+          inp.disabled = !canUpdate;
+          inp.style.cssText = 'width:100%;padding:2px 3px;font-size:10px;border:1px solid '
+            + (a.ejecutado ? '#22c55e' : '#cbd5e1') + ';border-radius:4px;background:#fff';
+          inp.onchange = function() {
+            const patch = {};
+            patch[name] = inp.value;
+            if(inp.value && !acts[idx].ejecutado) patch.ejecutado = true;
+            updateAct(idx, patch);
+          };
+          return inp;
+        };
+        cell.appendChild(mk('fechaEjec', a.fechaEjec, 'Fecha de ejecucion'));
+        if(a.tipoFecha === 'rango') cell.appendChild(mk('fechaEjecFin', a.fechaEjecFin, 'Fin'));
+        return cell;
+      };
+
+      let lastGrupo = null;
+      acts.forEach((a, idx) => {
+        if(a.grupo && a.grupo !== lastGrupo) {
+          const gh = document.createElement('div');
+          gh.style.cssText = 'font-size:10px;font-weight:700;color:var(--brand);margin-top:8px;padding:3px 0';
+          gh.textContent = '\u25b8 ' + a.grupo;
+          right.appendChild(gh);
+        }
+        lastGrupo = a.grupo;
+
+        const rowDiv = document.createElement('div');
+        rowDiv.style.cssText = GRID + ';align-items:center;padding:6px 0;border-bottom:1px solid #e2e8f0;font-size:11px';
+
+        const lbl = document.createElement('div');
+        lbl.style.cssText = 'font-weight:600;line-height:1.25'
+          + (a.ejecutado ? ';text-decoration:line-through;color:#64748b' : '');
+        lbl.textContent = a.nombre;
+        rowDiv.appendChild(lbl);
+
+        const fp = document.createElement('div');
+        fp.style.cssText = 'text-align:center;color:var(--muted)';
+        fp.textContent = fmtFecha(a, 'fechaPlan', 'fechaPlanFin');
+        fp.title = (a.fechaPlan || '') + (a.fechaPlanFin ? ' al ' + a.fechaPlanFin : '');
+        rowDiv.appendChild(fp);
+
+        rowDiv.appendChild(execCell(a, idx));
+
         const chkWrap = document.createElement('div');
         chkWrap.style.textAlign = 'center';
         const chk = document.createElement('input');
         chk.type = 'checkbox';
-        chk.checked = !!done;
-        chk.style.cssText = 'width:18px;height:18px;cursor:pointer';
+        chk.checked = !!a.ejecutado;
         chk.disabled = !canUpdate;
-        if(canUpdate) {
-          chk.onchange = function() {
-            if(onCheck) onCheck(chk.checked);
-          };
-        }
+        chk.style.cssText = 'width:16px;height:16px;cursor:pointer';
+        chk.title = 'Marcar ejecucion';
+        chk.onchange = function() {
+          const patch = { ejecutado: chk.checked };
+          if(chk.checked && !acts[idx].fechaEjec) {
+            patch.fechaEjec = today;
+            if(acts[idx].tipoFecha === 'rango' && !acts[idx].fechaEjecFin) patch.fechaEjecFin = today;
+          }
+          if(!chk.checked) { patch.fechaEjec = ''; patch.fechaEjecFin = ''; }
+          updateAct(idx, patch);
+        };
         chkWrap.appendChild(chk);
         rowDiv.appendChild(chkWrap);
-        
-        return rowDiv;
-      };
-      
-      // 1. Solicitud de muestras
-      const muestrasSolicitadas = row.estadoMuestras && row.estadoMuestras !== 'No solicitadas';
-      right.appendChild(createActivityRow({
-        label: 'Solicitud de muestras',
-        done: muestrasSolicitadas,
-        progDate: '',
-        execDate: muestrasSolicitadas ? row.fechaMuestras : '',
-        onCheck: function(checked) {
-          if(checked) onUpdate({ estadoMuestras: 'Solicitadas', fechaMuestras: today });
-          else onUpdate({ estadoMuestras: 'No solicitadas', fechaMuestras: '' });
-        }
-      }));
-      
-      // 2. Recepcion de muestras
-      const muestrasRecibidas = row.estadoMuestras === 'Recibidas' || row.estadoMuestras === 'Parciales';
-      right.appendChild(createActivityRow({
-        label: 'Recepcion de muestras',
-        done: muestrasRecibidas,
-        progDate: '',
-        execDate: muestrasRecibidas ? row.fechaMuestras : '',
-        onCheck: function(checked) {
-          if(checked) onUpdate({ estadoMuestras: 'Recibidas' });
-          else onUpdate({ estadoMuestras: row.estadoMuestras === 'Solicitadas' ? 'Solicitadas' : 'No solicitadas' });
-        }
-      }));
-      
-      // 3. Elaboracion de protocolo
-      const protocoloAprobado = row.estadoProtocolo === 'Aprobado';
-      right.appendChild(createActivityRow({
-        label: 'Elaboracion de protocolo',
-        done: protocoloAprobado,
-        progDate: '',
-        execDate: protocoloAprobado ? today : '',
-        onCheck: function(checked) {
-          if(checked) onUpdate({ estadoProtocolo: 'Aprobado' });
-          else onUpdate({ estadoProtocolo: 'En elaboracion' });
-        }
-      }));
-      
-      // 4. Ubicacion campo experimental
-      const ubicacionLista = row.campo1Rtc && row.campo2Rtc && row.campo1Ubicacion && row.campo2Ubicacion && row.campo1Cliente && row.campo2Cliente;
-      right.appendChild(createActivityRow({
-        label: 'Ubicacion campo experimental',
-        done: ubicacionLista,
-        progDate: '',
-        execDate: ubicacionLista ? today : '',
-        onCheck: function(checked) {
-          // No se puede marcar desde aqui si faltan datos; se hace desde el formulario
-          if(!ubicacionLista && checked) {
-            alert('Completa Campo 1 y Campo 2 (RTC, ubicacion y cliente) desde el boton Editar.');
-            return;
+        right.appendChild(rowDiv);
+
+        // Adjunto del protocolo (solo Elaboracion de protocolo)
+        if(a.adjunto) {
+          const att = document.createElement('div');
+          att.style.cssText = 'display:flex;align-items:center;gap:5px;margin:0 0 6px;padding-left:4px';
+          const attLbl = document.createElement('span');
+          attLbl.style.cssText = 'font-size:10px;color:var(--muted);white-space:nowrap';
+          attLbl.textContent = 'Protocolo:';
+          const attInp = document.createElement('input');
+          attInp.type = 'text';
+          attInp.value = a.archivo || '';
+          attInp.placeholder = 'Link o nombre de archivo';
+          attInp.disabled = !canUpdate;
+          attInp.style.cssText = 'flex:1;padding:3px 6px;font-size:10px';
+          attInp.onchange = function() { updateAct(idx, { archivo: attInp.value }); };
+          att.appendChild(attLbl);
+          att.appendChild(attInp);
+          if(a.archivo && /^https?:\/\//i.test(a.archivo)) {
+            const link = document.createElement('a');
+            link.href = a.archivo;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.textContent = 'Abrir';
+            link.style.cssText = 'font-size:10px;color:var(--brand)';
+            att.appendChild(link);
           }
-          onUpdate({}); // no-op
+          right.appendChild(att);
         }
-      }));
-      
-      // 5. Instalacion de ensayo
-      const instalacionDone = row.fechaInstalacion !== '';
-      right.appendChild(createActivityRow({
-        label: 'Instalacion de ensayo',
-        done: instalacionDone,
-        progDate: row.fechaInstalacion || '',
-        execDate: instalacionDone ? row.fechaInstalacion : '',
-        dateEditable: true,
-        onDateChange: function(date) {
-          onUpdate({ fechaInstalacion: date });
-        },
-        onCheck: function(checked) {
-          if(checked) onUpdate({ fechaInstalacion: today });
-          else onUpdate({ fechaInstalacion: '' });
-        }
-      }));
-      
-      // 6. Evaluaciones (una fila por evaluacion)
-      if(Array.isArray(row.evaluaciones) && row.evaluaciones.length) {
-        row.evaluaciones.forEach((ev, idx) => {
-          right.appendChild(createActivityRow({
-            label: ev.tipo || ('Evaluacion ' + (idx + 1)),
-            done: ev.estado === 'Realizada',
-            progDate: ev.fechaPlanificada || '',
-            execDate: ev.fechaReal || '',
-            dateEditable: true,
-            onDateChange: function(date) {
-              const evals = JSON.parse(JSON.stringify(row.evaluaciones));
-              evals[idx].fechaReal = date;
-              if(date) evals[idx].estado = 'Realizada';
-              onUpdate({ evaluaciones: evals });
-            },
-            onCheck: function(checked) {
-              const evals = JSON.parse(JSON.stringify(row.evaluaciones));
-              evals[idx].estado = checked ? 'Realizada' : 'Pendiente';
-              evals[idx].fechaReal = checked ? today : '';
-              onUpdate({ evaluaciones: evals });
-            }
-          }));
-        });
-      }
-      
-      // 7. Elaboracion informe
-      const informeDone = row.fechaInformePlanificada !== '' && ['Gabinete', 'Completado'].indexOf(row.estadoGeneral) >= 0;
-      right.appendChild(createActivityRow({
-        label: 'Elaboracion informe',
-        done: informeDone,
-        progDate: row.fechaInformePlanificada || '',
-        execDate: informeDone ? row.fechaInformePlanificada : '',
-        dateEditable: true,
-        onDateChange: function(date) {
-          onUpdate({ fechaInformePlanificada: date });
-        },
-        onCheck: function(checked) {
-          if(checked) onUpdate({ fechaInformePlanificada: today, estadoGeneral: 'Gabinete' });
-          else onUpdate({ estadoGeneral: 'Evaluaciones en curso' });
-        }
-      }));
-      
-      // 8. Culminado
-      const culminado = row.estadoGeneral === 'Completado';
-      right.appendChild(createActivityRow({
-        label: 'Culminado',
-        done: culminado,
-        progDate: '',
-        execDate: culminado ? today : '',
-        onCheck: function(checked) {
-          if(checked) onUpdate({ estadoGeneral: 'Completado' });
-          else onUpdate({ estadoGeneral: 'Gabinete' });
-        }
-      }));
-      
-      // Estado actual badge
+      });
+
+      // Estado derivado del avance de actividades
       const statusBadge = document.createElement('div');
       statusBadge.style.cssText = 'margin-top:12px;text-align:center';
-      statusBadge.innerHTML = '<span class="badge" style="background:' + (stateColors[row.estadoGeneral] || '#999') + ';color:#fff;font-size:12px">' + this.esc(row.estadoGeneral) + '</span>';
+      const estado = row.estadoGeneral || '';
+      statusBadge.innerHTML = '<span class="badge" style="background:'
+        + (stateColors[estado] || '#999') + ';color:#fff;font-size:12px">'
+        + this.esc(estado) + '</span>';
       right.appendChild(statusBadge);
-      
+
       container.appendChild(right);
-      
+
       return container;
     },
 

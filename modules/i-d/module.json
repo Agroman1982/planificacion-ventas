@@ -23,162 +23,39 @@
         "order": 2
       },
       {
-        "name": "descripcion",
-        "label": "Descripcion (ingrediente activo, cultivo, notas)",
-        "type": "textarea",
+        "name": "representante",
+        "label": "Representante (Promotor o RTC)",
+        "type": "userselect",
         "required": false,
-        "width": 300,
+        "width": 180,
         "order": 3
       },
       {
-        "name": "estadoMuestras",
-        "label": "Estado de muestras",
-        "type": "select",
+        "name": "ubicacionEnsayo",
+        "label": "Ubicacion del ensayo",
+        "type": "text",
         "required": false,
-        "options": ["No solicitadas", "Solicitadas", "Recibidas", "Parciales"],
-        "default": "No solicitadas",
-        "width": 140,
+        "placeholder": "Lugar / region / fundo",
+        "width": 200,
         "order": 4
       },
       {
-        "name": "fechaMuestras",
-        "label": "Fecha muestras solicitadas",
-        "type": "date",
+        "name": "plaga",
+        "label": "Plaga",
+        "type": "text",
         "required": false,
-        "width": 140,
+        "placeholder": "Plaga o enfermedad objetivo",
+        "width": 160,
         "order": 5
       },
       {
-        "name": "estadoProtocolo",
-        "label": "Protocolo",
-        "type": "select",
+        "name": "cultivo",
+        "label": "Cultivo",
+        "type": "text",
         "required": false,
-        "options": ["Pendiente", "En elaboracion", "Aprobado"],
-        "default": "Pendiente",
-        "width": 140,
+        "placeholder": "Cultivo del ensayo",
+        "width": 160,
         "order": 6
-      },
-      {
-        "name": "protocoloLink",
-        "label": "Referencia del protocolo (link/nombre archivo)",
-        "type": "text",
-        "required": false,
-        "placeholder": "Link o referencia al Excel del protocolo",
-        "width": 200,
-        "order": 7
-      },
-      {
-        "name": "tratamientos",
-        "label": "Tratamientos (dosis, repeticiones, testigo)",
-        "type": "textarea",
-        "required": false,
-        "placeholder": "Dosis, numero de tratamientos/repeticiones, testigo",
-        "width": 300,
-        "order": 8
-      },
-      {
-        "name": "variablesEvaluar",
-        "label": "Variables a evaluar",
-        "type": "textarea",
-        "required": false,
-        "placeholder": "Incidencia, severidad, rendimiento, etc.",
-        "width": 300,
-        "order": 9
-      },
-      {
-        "name": "fechaInstalacion",
-        "label": "Fecha instalacion planificada",
-        "type": "date",
-        "required": false,
-        "width": 140,
-        "order": 10
-      },
-      {
-        "name": "campo1Rtc",
-        "label": "Campo 1 - RTC",
-        "type": "userselect",
-        "required": false,
-        "width": 160,
-        "order": 11
-      },
-      {
-        "name": "campo1Ubicacion",
-        "label": "Campo 1 - Ubicacion",
-        "type": "text",
-        "required": false,
-        "placeholder": "Lugar / region",
-        "width": 160,
-        "order": 12
-      },
-      {
-        "name": "campo1Cliente",
-        "label": "Campo 1 - Cliente / Propietario",
-        "type": "text",
-        "required": false,
-        "width": 180,
-        "order": 13
-      },
-      {
-        "name": "campo2Rtc",
-        "label": "Campo 2 - RTC",
-        "type": "userselect",
-        "required": false,
-        "width": 160,
-        "order": 14
-      },
-      {
-        "name": "campo2Ubicacion",
-        "label": "Campo 2 - Ubicacion",
-        "type": "text",
-        "required": false,
-        "placeholder": "Lugar / region",
-        "width": 160,
-        "order": 15
-      },
-      {
-        "name": "campo2Cliente",
-        "label": "Campo 2 - Cliente / Propietario",
-        "type": "text",
-        "required": false,
-        "width": 180,
-        "order": 16
-      },
-      {
-        "name": "evaluaciones",
-        "label": "Evaluaciones (instalacion, 1ra, 2da, 3ra...)",
-        "type": "evaluations",
-        "required": false,
-        "width": 300,
-        "order": 17
-      },
-      {
-        "name": "estadoGeneral",
-        "label": "Estado general",
-        "type": "select",
-        "required": true,
-        "options": [
-          "Producto potencial",
-          "Muestras solicitadas",
-          "Protocolo en elaboracion",
-          "Protocolo aprobado",
-          "Busqueda de campos",
-          "Instalacion",
-          "Evaluaciones en curso",
-          "Gabinete",
-          "Completado",
-          "Suspendido"
-        ],
-        "default": "Producto potencial",
-        "width": 180,
-        "order": 18
-      },
-      {
-        "name": "fechaInformePlanificada",
-        "label": "Fecha informe planificada",
-        "type": "date",
-        "required": false,
-        "width": 140,
-        "order": 19
       },
       {
         "name": "observaciones",
@@ -186,8 +63,42 @@
         "type": "textarea",
         "required": false,
         "width": 300,
-        "order": 20
+        "order": 7
+      },
+      {
+        "name": "actividades",
+        "label": "ACTIVIDADES",
+        "type": "activities",
+        "required": false,
+        "width": 300,
+        "order": 8
+      },
+      {
+        "name": "suspendido",
+        "label": "Ensayo suspendido",
+        "type": "select",
+        "required": false,
+        "options": ["No", "Si"],
+        "default": "No",
+        "width": 140,
+        "order": 9
       }
+    ],
+    "actividadesTemplate": [
+      { "key": "solicitudMuestras",    "nombre": "Solicitud de muestras",        "grupo": "",               "tipoFecha": "exacta", "esEvaluacion": false, "adjunto": false },
+      { "key": "recepcionMuestras",    "nombre": "Recepcion de muestras",        "grupo": "",               "tipoFecha": "exacta", "esEvaluacion": false, "adjunto": false },
+      { "key": "elaboracionProtocolo", "nombre": "Elaboracion de protocolo",     "grupo": "",               "tipoFecha": "rango",  "esEvaluacion": false, "adjunto": true  },
+      { "key": "ubicacionCampo",       "nombre": "Ubicacion campo experimental", "grupo": "",               "tipoFecha": "rango",  "esEvaluacion": false, "adjunto": false },
+      { "key": "instalacion",          "nombre": "Instalacion",                  "grupo": "Ensayo de campo", "tipoFecha": "exacta", "esEvaluacion": false, "adjunto": false },
+      { "key": "eval1",                "nombre": "Evaluacion 1",                 "grupo": "Ensayo de campo", "tipoFecha": "exacta", "esEvaluacion": true,  "adjunto": false },
+      { "key": "eval2",                "nombre": "Evaluacion 2",                 "grupo": "Ensayo de campo", "tipoFecha": "exacta", "esEvaluacion": true,  "adjunto": false },
+      { "key": "eval3",                "nombre": "Evaluacion 3",                 "grupo": "Ensayo de campo", "tipoFecha": "exacta", "esEvaluacion": true,  "adjunto": false },
+      { "key": "eval4",                "nombre": "Evaluacion 4",                 "grupo": "Ensayo de campo", "tipoFecha": "exacta", "esEvaluacion": true,  "adjunto": false },
+      { "key": "elaboracionInforme",   "nombre": "Elaboracion de informe",       "grupo": "",               "tipoFecha": "rango",  "esEvaluacion": false, "adjunto": false },
+      { "key": "presentacionInforme",  "nombre": "Presentacion informe",         "grupo": "",               "tipoFecha": "exacta", "esEvaluacion": false, "adjunto": false }
+    ],
+    "basicDetailFields": [
+      "producto", "tipoProducto", "plaga", "cultivo", "representante", "ubicacionEnsayo", "observaciones"
     ],
     "states": {
       "values": [
@@ -235,7 +146,7 @@
         "icon": "\ud83d\udccb",
         "filters": ["estadoGeneral", "tipoProducto"],
         "sortBy": "createdAt",
-        "columns": ["producto", "tipoProducto", "estadoGeneral", "campo1Rtc", "campo2Rtc", "fechaInstalacion"]
+        "columns": ["producto", "tipoProducto", "plaga", "cultivo", "representante", "ubicacionEnsayo"]
       },
       "calendario": {
         "enabled": true,
@@ -280,7 +191,7 @@
       "teamVisibility": false,
       "exportCSV": true,
       "ownerFilter": false,
-      "assignedFields": ["campo1Rtc", "campo2Rtc"],
+      "assignedFields": ["representante", "campo1Rtc", "campo2Rtc"],
       "moduleType": "investigacion"
     }
   }

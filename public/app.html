@@ -452,23 +452,32 @@
     var content=$('detailContent');
     content.innerHTML='';
 
-    // Para I+D usamos el detalle con timeline de actividades
+    // Para I+D usamos el detalle con informacion basica + timeline de ACTIVIDADES
     if(currentModule==='i-d'){
-      var canEdit=(me.role==='admin'||me.role==='supervisor'||me.role==='coordinador'||row.campo1Rtc===me.id||row.campo2Rtc===me.id);
-      var detail=ModuleRenderer.renderIDDetail(row, moduleSchema, moduleUsers, canEdit ? function(changes){
-        var payload=ModuleRenderer.buildIDUpdatePayload(row, changes);
-        api('PUT','/api/modules/'+currentModule+'/rows/'+rowId, payload).then(function(res){
-          if(res.ok){
-            loadRows();
-            toast('Actualizado');
-          } else {
-            alert(res.data.error||'Error al actualizar');
-          }
-        });
-      } : null);
-      content.appendChild(detail);
+      var canEdit=(me.role==='admin'||me.role==='supervisor'||me.role==='coordinador'
+        ||row.representante===me.id||row.campo1Rtc===me.id||row.campo2Rtc===me.id);
 
-      // Editar: visible para quien tiene permisos (admin/supervisor/coordinador o asignado al campo)
+      function drawID(currentRow){
+        content.innerHTML='';
+        var detail=ModuleRenderer.renderIDDetail(currentRow, moduleSchema, moduleUsers, canEdit ? function(changes){
+          var payload=ModuleRenderer.buildIDUpdatePayload(currentRow, changes);
+          api('PUT','/api/modules/'+currentModule+'/rows/'+currentRow.id, payload).then(function(res){
+            if(res.ok){
+              var updated=res.data.row;
+              var idx=rows.findIndex(function(r){ return r.id===currentRow.id; });
+              if(idx>=0) rows[idx]=updated;
+              drawID(updated);       // refleja check, fecha y estado derivado
+              loadRows();            // refresca lista agrupada / dashboard
+              toast('Actualizado');
+            } else {
+              alert(res.data.error||'Error al actualizar');
+            }
+          });
+        } : null);
+        content.appendChild(detail);
+      }
+      drawID(row);
+
       $('editBtn').style.display=canEdit?'':'none';
       $('deleteBtn').style.display=(me.role==='admin'||me.role==='supervisor')?'':'none';
 
@@ -604,7 +613,8 @@
 
     // Para I+D, verificar permisos: admin/supervisor/coordinador o asignado
     if(currentModule==='i-d'){
-      var canEdit=(me.role==='admin'||me.role==='supervisor'||me.role==='coordinador'||row.campo1Rtc===me.id||row.campo2Rtc===me.id);
+      var canEdit=(me.role==='admin'||me.role==='supervisor'||me.role==='coordinador'
+        ||row.representante===me.id||row.campo1Rtc===me.id||row.campo2Rtc===me.id);
       if(!canEdit) return;
     }
 
@@ -637,6 +647,15 @@
           if(Array.isArray(evals)&&evals.length){
             arr.push(evals.map(function(ev){ return (ev.tipo||'')+' ['+ev.estado+'] planif:'+ev.fechaPlanificada+' real:'+ev.fechaReal+(ev.observaciones?' - '+ev.observaciones:''); }).join('\n'));
           } else arr.push('');
+        } else if(f.type==='activities'){
+          var acts=r[f.name];
+          if(Array.isArray(acts)&&acts.length){
+            arr.push(acts.map(function(a){
+              return (a.nombre||'')+' | Prog.: '+(a.fechaPlan||'—')
+                +(a.tipoFecha==='rango'&&a.fechaPlanFin?' a '+a.fechaPlanFin:'')
+                +' | Ejec.: '+(a.fechaEjec||'—')+' | '+(a.ejecutado?'Realizada':'Pendiente');
+            }).join('\n'));
+          } else arr.push('');
         } else if(f.type==='userselect'){
           var u=moduleUsers.find(function(x){ return x.id===r[f.name]; });
           arr.push(u?u.name:'');
@@ -667,8 +686,10 @@
       {label:'Eval 3',width:14,type:'date'},
       {label:'Eval 4',width:14,type:'date'},
       {label:'Informe',width:14,type:'date'},
-      {label:'Campo 1 RTC',width:18,type:'text'},
-      {label:'Campo 2 RTC',width:18,type:'text'}
+      {label:'Plaga',width:18,type:'text'},
+      {label:'Cultivo',width:18,type:'text'},
+      {label:'Ubicacion del ensayo',width:22,type:'text'},
+      {label:'Representante',width:20,type:'text'}
     ];
     var data=rows.map(function(r){
       var evalDates=['','','',''];
@@ -677,14 +698,14 @@
           if(i<4) evalDates[i]=ev.fechaReal||ev.fechaPlanificada||'';
         });
       }
-      var u1=moduleUsers.find(function(x){ return x.id===r.campo1Rtc; });
-      var u2=moduleUsers.find(function(x){ return x.id===r.campo2Rtc; });
+      var rep=moduleUsers.find(function(x){ return x.id===(r.representante||r.campo1Rtc); });
       return [
         r.producto||'', r.tipoProducto||'', r.estadoGeneral||'',
         r.fechaMuestras||'', r.fechaInstalacion||'',
         evalDates[0], evalDates[1], evalDates[2], evalDates[3],
         r.fechaInformePlanificada||'',
-        u1?u1.name:'', u2?u2.name:''
+        r.plaga||'', r.cultivo||'', r.ubicacionEnsayo||'',
+        rep?rep.name:''
       ];
     });
     RainbowXLSX.descargar('cronograma_id_'+new Date().toISOString().slice(0,10)+'.xlsx',
