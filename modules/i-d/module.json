@@ -271,7 +271,7 @@
       "delete": ["owner", "admin", "supervisor"],
       "viewAll": ["admin", "supervisor", "coordinador"],
       "viewTeam": [],
-      "viewAssigned": ["retail", "kam"]
+      "viewAssigned": ["retail", "kam", "promotor"]
     },
     "features": {
       "quickStatusChange": true,

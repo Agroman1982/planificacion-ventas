@@ -36,7 +36,7 @@
       "createdAt": 1729443600000,
       "updatedAt": 1731318400000,
       "dataPath": "modules/i-d/data",
-      "allowedRoles": ["admin", "supervisor", "coordinador", "retail", "kam"],
+      "allowedRoles": ["admin", "supervisor", "coordinador", "retail", "kam", "promotor"],
       "defaultView": "lista"
     }
   ],

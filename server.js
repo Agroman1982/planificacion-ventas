@@ -592,7 +592,7 @@ const server = http.createServer(async (req, res) => {
       const hasUserSelect = fields.some(f => f.type === 'userselect');
       if (hasUserSelect) {
         const rtcUsers = globalDb.users
-          .filter(u => u.role === 'retail' || u.role === 'kam')
+          .filter(u => u.role === 'retail' || u.role === 'kam' || u.role === 'promotor')
           .map(u => ({ id: u.id, name: u.name, role: u.role }));
         return sendJSON(res, 200, Object.assign({}, schema, { users: rtcUsers }));
       }
@@ -673,7 +673,7 @@ const server = http.createServer(async (req, res) => {
       // Para I+D, adjuntar la lista de RTCs para poblar userselect en el frontend
       if (moduleId === 'i-d') {
         const rtcUsers = globalDb.users
-          .filter(u => u.role === 'retail' || u.role === 'kam')
+          .filter(u => u.role === 'retail' || u.role === 'kam' || u.role === 'promotor')
           .map(u => ({ id: u.id, name: u.name, role: u.role }));
         return sendJSON(res, 200, { rows, ownerNames, users: rtcUsers });
       }

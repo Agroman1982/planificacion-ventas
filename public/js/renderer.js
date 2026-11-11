@@ -57,7 +57,8 @@
             (this.users || []).forEach(u => {
               const option = document.createElement('option');
               option.value = u.id;
-              option.textContent = u.name + ' (' + (u.role === 'kam' ? 'KAM' : 'RTC') + ')';
+              var roleLabel = u.role === 'kam' ? 'KAM' : (u.role === 'promotor' ? 'Promotor' : 'RTC');
+              option.textContent = u.name + ' (' + roleLabel + ')';
               input.appendChild(option);
             });
             break;
