@@ -645,26 +645,33 @@
       return card;
     },
 
-    // Renderizar vista Cronograma (Gantt simple)
+    // Renderizar vista Cronograma (Gantt con detalle expandible por ensayo)
     renderCronograma(rows, schema, ownerNames) {
       const container = document.createElement('div');
-      container.className = 'cronograma';
+      container.className = 'cronograma card';
       
       if (!rows.length) {
         container.innerHTML = '<p class="muted" style="text-align:center;padding:20px">Sin ensayos para mostrar.</p>';
         return container;
       }
       
-      // Encontrar rango de fechas
+      const states = schema.schema.states || {};
+      const stateColors = states.colors || {};
+      
+      // ---- Rango de fechas (incluye las fechas de las actividades) ----
       const allDates = [];
+      const pushDate = d => { if (d) allDates.push(String(d).slice(0, 10)); };
       rows.forEach(r => {
-        if (r.fechaMuestras) allDates.push(r.fechaMuestras);
-        if (r.fechaInstalacion) allDates.push(r.fechaInstalacion);
-        if (r.fechaInformePlanificada) allDates.push(r.fechaInformePlanificada);
+        pushDate(r.fechaMuestras);
+        pushDate(r.fechaInstalacion);
+        pushDate(r.fechaInformePlanificada);
         if (Array.isArray(r.evaluaciones)) {
-          r.evaluaciones.forEach(ev => {
-            if (ev.fechaPlanificada) allDates.push(ev.fechaPlanificada);
-            if (ev.fechaReal) allDates.push(ev.fechaReal);
+          r.evaluaciones.forEach(ev => { pushDate(ev.fechaPlanificada); pushDate(ev.fechaReal); });
+        }
+        if (Array.isArray(r.actividades)) {
+          r.actividades.forEach(a => {
+            pushDate(a.fechaPlan); pushDate(a.fechaPlanFin);
+            pushDate(a.fechaEjec); pushDate(a.fechaEjecFin);
           });
         }
       });
@@ -675,77 +682,125 @@
       }
       
       allDates.sort();
-      const minDate = new Date(allDates[0]);
-      const maxDate = new Date(allDates[allDates.length - 1]);
-      // Padding de 7 dias a cada lado
+      // Fechas a media noche local: new Date('2026-11-05') se interpretaria en UTC
+      const minDate = new Date(allDates[0] + 'T00:00:00');
+      const maxDate = new Date(allDates[allDates.length - 1] + 'T00:00:00');
       minDate.setDate(minDate.getDate() - 7);
       maxDate.setDate(maxDate.getDate() + 7);
       const totalDays = Math.max(1, Math.round((maxDate - minDate) / 86400000));
+      const SPAN = totalDays * 86400000;
+      const pctOf = iso => {
+        if (!iso) return null;
+        const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+        if (isNaN(d.getTime()) || d < minDate || d > maxDate) return null;
+        return ((d - minDate) / SPAN) * 100;
+      };
       
-      // Cabecera con meses
+      // ---- Cabecera con los meses ----
       const headerDiv = document.createElement('div');
-      headerDiv.style.cssText = 'display:grid;grid-template-columns:180px 1fr;gap:8px;margin-bottom:8px;font-size:11px;color:var(--muted);font-weight:600';
-      headerDiv.innerHTML = '<div>Ensayo</div><div style="position:relative;height:18px"></div>';
+      headerDiv.style.cssText = 'display:grid;grid-template-columns:190px 1fr;gap:10px;margin-bottom:6px;'
+        + 'font-size:11px;color:#334155;font-weight:700;letter-spacing:.4px';
+      headerDiv.innerHTML = '<div>ENSAYO</div><div style="position:relative;height:18px"></div>';
       container.appendChild(headerDiv);
-      
-      // Linea de tiempo con marcas de mes
       const timelineWrap = headerDiv.children[1];
+      
       const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      // Se detectan los inicios de mes para dibujar los separadores, y la etiqueta
+      // de cada mes se centra dentro de su propio tramo (así nunca se solapan).
+      const boundaries = [];
       let curMonth = -1;
       for (let d = 0; d <= totalDays; d++) {
         const date = new Date(minDate.getTime() + d * 86400000);
         if (date.getMonth() !== curMonth) {
           curMonth = date.getMonth();
-          const mark = document.createElement('div');
-          const pct = (d / totalDays) * 100;
-          mark.style.cssText = 'position:absolute;left:' + pct + '%;top:0;font-size:10px;color:var(--muted);white-space:nowrap';
-          mark.textContent = monthNames[curMonth] + ' ' + date.getFullYear();
-          timelineWrap.appendChild(mark);
+          boundaries.push({ d: d, month: curMonth, year: date.getFullYear() });
         }
       }
+      const monthMarks = boundaries.map(b => (b.d / totalDays) * 100);
+      boundaries.forEach((b, i) => {
+        const next = (i + 1 < boundaries.length) ? boundaries[i + 1].d : totalDays;
+        const spanPct = ((next - b.d) / totalDays) * 100;
+        if (spanPct < 3) return;   // tramo demasiado angosto: no cabe la etiqueta
+        const midPct = Math.min(97, Math.max(3, ((b.d + next) / 2 / totalDays) * 100));
+        const mark = document.createElement('div');
+        mark.style.cssText = 'position:absolute;left:' + midPct.toFixed(2) + '%;top:0;font-size:10px;'
+          + 'font-weight:700;color:#1E293B;white-space:nowrap;transform:translateX(-50%)';
+        mark.textContent = monthNames[b.month] + (b.month === 0 ? ' ' + b.year : '');
+        timelineWrap.appendChild(mark);
+      });
       
-      // Filas del cronograma
-      const states = schema.schema.states || {};
-      const stateColors = states.colors || {};
-      
+      // ---- Filas del cronograma ----
       rows.forEach(row => {
         const rowDiv = document.createElement('div');
-        rowDiv.style.cssText = 'display:grid;grid-template-columns:180px 1fr;gap:8px;margin-bottom:4px;align-items:center';
+        rowDiv.style.cssText = 'display:grid;grid-template-columns:190px 1fr;gap:10px;margin-bottom:6px;align-items:center';
         
         const labelDiv = document.createElement('div');
-        labelDiv.style.cssText = 'font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-        labelDiv.textContent = row.producto || '—';
-        labelDiv.title = row.producto || '';
+        labelDiv.style.cssText = 'font-size:12px;font-weight:700;color:#0F172A;display:flex;align-items:center;gap:6px;min-width:0;cursor:pointer';
+        const chev = document.createElement('span');
+        chev.textContent = '\u25B8';
+        chev.style.cssText = 'font-size:11px;color:#64748B;display:inline-block;transition:transform .15s ease';
+        labelDiv.appendChild(chev);
+        const nameSpan = document.createElement('span');
+        nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        nameSpan.textContent = row.producto || '\u2014';
+        nameSpan.title = row.producto || '';
+        labelDiv.appendChild(nameSpan);
         rowDiv.appendChild(labelDiv);
         
         const barArea = document.createElement('div');
-        barArea.style.cssText = 'position:relative;height:24px;background:#f0f0f0;border-radius:6px;overflow:hidden';
+        barArea.style.cssText = 'position:relative;height:26px;background:#EEF2F6;border:1px solid #CBD5E1;'
+          + 'border-radius:6px;overflow:hidden;cursor:pointer';
         
-        // Barra principal: desde fechaInstalacion hasta fechaInformePlanificada (o fecha actual)
-        if (row.fechaInstalacion) {
-          const start = new Date(row.fechaInstalacion);
-          const end = row.fechaInformePlanificada ? new Date(row.fechaInformePlanificada) : maxDate;
-          if (start >= minDate && end <= maxDate && end >= start) {
-            const startPct = ((start - minDate) / (totalDays * 86400000)) * 100;
-            const widthPct = Math.max(2, ((end - start) / (totalDays * 86400000)) * 100);
-            const bar = document.createElement('div');
+        // Separadores de mes
+        monthMarks.forEach(p => {
+          const line = document.createElement('div');
+          line.style.cssText = 'position:absolute;left:' + p + '%;top:0;bottom:0;width:1px;background:#CBD5E1';
+          barArea.appendChild(line);
+        });
+        
+        // Actividades del ensayo (base del panel y de la barra principal)
+        const acts = (Array.isArray(row.actividades) && row.actividades.length)
+          ? row.actividades
+          : (Array.isArray(row.evaluaciones) ? row.evaluaciones.map(ev => ({
+              nombre: ev.tipo || 'Evaluacion', grupo: '', tipoFecha: 'exacta',
+              fechaPlan: ev.fechaPlanificada || '', fechaEjec: ev.fechaReal || '',
+              ejecutado: ev.estado === 'Realizada'
+            })) : []);
+        
+        // Barra principal: del primer al ultimo hito del ensayo
+        const hitoFechas = [];
+        acts.forEach(a => {
+          if (a.fechaEjec) hitoFechas.push(a.fechaEjec);
+          else if (a.fechaPlan) hitoFechas.push(a.fechaPlan);
+        });
+        if (!hitoFechas.length) {
+          if (row.fechaInstalacion) hitoFechas.push(row.fechaInstalacion);
+          if (row.fechaInformePlanificada) hitoFechas.push(row.fechaInformePlanificada);
+        }
+        hitoFechas.sort();
+        if (hitoFechas.length) {
+          const p1 = pctOf(hitoFechas[0]);
+          const p2 = pctOf(hitoFechas[hitoFechas.length - 1]);
+          if (p1 !== null) {
+            const end = (p2 !== null && p2 > p1) ? p2 : p1;
             const color = stateColors[row.estadoGeneral] || '#1976d2';
-            bar.style.cssText = 'position:absolute;left:' + startPct + '%;width:' + widthPct + '%;top:2px;bottom:2px;background:' + color + ';border-radius:4px;opacity:0.6';
+            const bar = document.createElement('div');
+            bar.style.cssText = 'position:absolute;left:' + p1 + '%;width:' + Math.max(1.5, end - p1)
+              + '%;top:3px;bottom:3px;background:' + color + '55;border:1px solid ' + color + ';border-radius:4px';
+            bar.title = row.producto + ': ' + hitoFechas[0] + ' \u2192 ' + hitoFechas[hitoFechas.length - 1];
             barArea.appendChild(bar);
           }
         }
         
         // Marcadores de hitos
         const milestones = [
-          { date: row.fechaMuestras, label: 'M', color: '#fbc02d' },
-          { date: row.fechaInstalacion, label: 'I', color: '#1976d2' },
-          { date: row.fechaInformePlanificada, label: 'Inf', color: '#7b1fa2' }
+          { date: row.fechaMuestras, label: 'Muestras', color: '#F59E0B' },
+          { date: row.fechaInstalacion, label: 'Instalacion', color: '#2563EB' },
+          { date: row.fechaInformePlanificada, label: 'Informe', color: '#7C3AED' }
         ];
         milestones.forEach(ms => {
-          if (!ms.date) return;
-          const d = new Date(ms.date);
-          if (d < minDate || d > maxDate) return;
-          const pct = ((d - minDate) / (totalDays * 86400000)) * 100;
+          const pct = pctOf(ms.date);
+          if (pct === null) return;
           const dot = document.createElement('div');
           dot.style.cssText = 'position:absolute;left:' + pct + '%;top:0;bottom:0;width:3px;background:' + ms.color + ';z-index:2';
           dot.title = ms.label + ': ' + ms.date;
@@ -755,32 +810,138 @@
         // Evaluaciones como puntos
         if (Array.isArray(row.evaluaciones)) {
           row.evaluaciones.forEach(ev => {
-            const evDate = ev.fechaReal || ev.fechaPlanificada;
-            if (!evDate) return;
-            const d = new Date(evDate);
-            if (d < minDate || d > maxDate) return;
-            const pct = ((d - minDate) / (totalDays * 86400000)) * 100;
+            const pct = pctOf(ev.fechaReal || ev.fechaPlanificada);
+            if (pct === null) return;
+            const evColor = ev.estado === 'Realizada' ? '#16A34A' : (ev.estado === 'No realizada' ? '#DC2626' : '#F59E0B');
             const dot = document.createElement('div');
-            const evColor = ev.estado === 'Realizada' ? '#2e7d32' : (ev.estado === 'No realizada' ? '#c62828' : '#666');
-            dot.style.cssText = 'position:absolute;left:' + pct + '%;top:6px;width:12px;height:12px;border-radius:50%;background:' + evColor + ';border:2px solid #fff;z-index:3;transform:translateX(-50%)';
-            dot.title = (ev.tipo || 'Eval') + ' ' + evDate + ' (' + ev.estado + ')';
+            dot.style.cssText = 'position:absolute;left:' + pct + '%;top:7px;width:12px;height:12px;'
+              + 'border-radius:50%;background:' + evColor + ';border:2px solid #fff;z-index:3;transform:translateX(-50%)';
+            dot.title = (ev.tipo || 'Eval') + ' ' + (ev.fechaReal || ev.fechaPlanificada) + ' (' + ev.estado + ')';
             barArea.appendChild(dot);
           });
         }
         
+        // ---- Panel "cortina": actividades hechas y por hacer ----
+        const panel = document.createElement('div');
+        panel.className = 'crono-panel';
+        panel.style.cssText = 'grid-column:1/-1;display:none;margin:4px 0 10px;background:#F8FAFC;'
+          + 'border:1px solid #CBD5E1;border-radius:10px;padding:10px 12px';
+        
+        if (!acts.length) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'font-size:12px;color:#64748B';
+          empty.textContent = 'Este ensayo no tiene actividades registradas.';
+          panel.appendChild(empty);
+        } else {
+          const panelHead = document.createElement('div');
+          panelHead.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;'
+            + 'font-size:11px;font-weight:700;color:#334155;margin-bottom:6px';
+          const done = acts.filter(a => a.ejecutado).length;
+          panelHead.innerHTML = '<span>ACTIVIDADES DEL ENSAYO</span>'
+            + '<span style="font-weight:600;color:#64748B">' + done + ' de ' + acts.length + ' realizadas</span>';
+          panel.appendChild(panelHead);
+          
+          let lastGrupo = null;
+          acts.forEach(a => {
+            if (a.grupo && a.grupo !== lastGrupo) {
+              const gh = document.createElement('div');
+              gh.style.cssText = 'font-size:10px;font-weight:700;color:#1D4ED8;margin:10px 0 4px;'
+                + 'text-transform:uppercase;letter-spacing:.4px';
+              gh.textContent = a.grupo;
+              panel.appendChild(gh);
+            }
+            lastGrupo = a.grupo;
+            
+            const aRow = document.createElement('div');
+            aRow.style.cssText = 'display:grid;grid-template-columns:190px 1fr;gap:10px;align-items:center;padding:3px 0';
+            
+            const aLeft = document.createElement('div');
+            aLeft.style.cssText = 'font-size:11px;color:#0F172A;display:flex;align-items:center;gap:6px;min-width:0';
+            const dot = document.createElement('span');
+            dot.style.cssText = 'width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:'
+              + (a.ejecutado ? '#16A34A' : (a.fechaPlan ? '#F59E0B' : '#CBD5E1'));
+            aLeft.appendChild(dot);
+            const aName = document.createElement('span');
+            aName.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+            aName.textContent = a.nombre || 'Actividad';
+            aName.title = a.nombre || '';
+            aLeft.appendChild(aName);
+            aRow.appendChild(aLeft);
+            
+            const aBar = document.createElement('div');
+            aBar.style.cssText = 'position:relative;height:18px;background:#fff;border:1px solid #E2E8F0;border-radius:5px';
+            
+            // Ventana programada
+            const p1 = pctOf(a.fechaPlan);
+            const p2 = (a.tipoFecha === 'rango') ? pctOf(a.fechaPlanFin) : p1;
+            if (p1 !== null) {
+              const end = (p2 !== null && p2 > p1) ? p2 : p1;
+              const bar = document.createElement('div');
+              bar.style.cssText = 'position:absolute;left:' + p1 + '%;width:' + Math.max(1.2, end - p1)
+                + '%;top:3px;bottom:3px;background:#93C5FD;border-radius:3px';
+              bar.title = 'Programado: ' + (a.fechaPlan || '') + (a.fechaPlanFin ? ' al ' + a.fechaPlanFin : '');
+              aBar.appendChild(bar);
+            }
+            // Ventana ejecutada
+            const e1 = pctOf(a.fechaEjec);
+            const e2 = (a.tipoFecha === 'rango') ? pctOf(a.fechaEjecFin) : e1;
+            if (e1 !== null) {
+              if (e2 !== null && e2 > e1) {
+                const eb = document.createElement('div');
+                eb.style.cssText = 'position:absolute;left:' + e1 + '%;width:' + (e2 - e1)
+                  + '%;top:4px;bottom:4px;background:#16A34A;border-radius:3px';
+                eb.title = 'Ejecutado: ' + a.fechaEjec;
+                aBar.appendChild(eb);
+              } else {
+                const ed = document.createElement('div');
+                ed.style.cssText = 'position:absolute;left:' + e1 + '%;top:2px;bottom:2px;width:10px;'
+                  + 'margin-left:-5px;border-radius:50%;background:#16A34A;border:2px solid #fff';
+                ed.title = 'Ejecutado: ' + a.fechaEjec;
+                aBar.appendChild(ed);
+              }
+            }
+            aRow.appendChild(aBar);
+            
+            const aInfo = document.createElement('div');
+            aInfo.style.cssText = 'grid-column:1/-1;font-size:10px;color:#64748B;padding:1px 0 1px 15px';
+            const rango = (ini, fin) => (a.tipoFecha === 'rango')
+              ? (ini ? ini + ' \u2192 ' + (fin || '?') : 'sin fecha')
+              : (ini || 'sin fecha');
+            aInfo.textContent = 'F. Prog.: ' + rango(a.fechaPlan, a.fechaPlanFin)
+              + '   |   F. Ejec.: ' + rango(a.fechaEjec, a.fechaEjecFin)
+              + '   |   ' + (a.ejecutado ? 'Realizada' : 'Pendiente');
+            aRow.appendChild(aInfo);
+            
+            panel.appendChild(aRow);
+          });
+        }
+        
         rowDiv.appendChild(barArea);
+        rowDiv.appendChild(panel);
+        
+        // Efecto "cortina": click en el ensayo abre/cierra sus actividades
+        const toggle = function() {
+          const open = panel.style.display !== 'none';
+          panel.style.display = open ? 'none' : 'block';
+          chev.style.transform = open ? '' : 'rotate(90deg)';
+        };
+        labelDiv.onclick = toggle;
+        barArea.onclick = toggle;
+        
         container.appendChild(rowDiv);
       });
       
-      // Leyenda
+      // ---- Leyenda ----
       const legend = document.createElement('div');
-      legend.style.cssText = 'display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:11px;color:var(--muted)';
-      legend.innerHTML = '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2e7d32;margin-right:3px"></span> Realizada</span>'
-        + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#c62828;margin-right:3px"></span> No realizada</span>'
-        + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#666;margin-right:3px"></span> Pendiente</span>'
-        + '<span><span style="display:inline-block;width:3px;height:12px;background:#fbc02d;margin-right:3px"></span> Muestras</span>'
-        + '<span><span style="display:inline-block;width:3px;height:12px;background:#1976d2;margin-right:3px"></span> Instalacion</span>'
-        + '<span><span style="display:inline-block;width:3px;height:12px;background:#7b1fa2;margin-right:3px"></span> Informe</span>';
+      legend.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:14px;'
+        + 'padding-top:10px;border-top:1px solid #E2E8F0;font-size:11px;color:#334155;font-weight:600';
+      legend.innerHTML = '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#16A34A;margin-right:4px"></span> Actividad realizada</span>'
+        + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#F59E0B;margin-right:4px"></span> Actividad pendiente</span>'
+        + '<span><span style="display:inline-block;width:16px;height:8px;border-radius:2px;background:#93C5FD;margin-right:4px"></span> Ventana programada</span>'
+        + '<span><span style="display:inline-block;width:3px;height:12px;background:#F59E0B;margin-right:4px"></span> Muestras</span>'
+        + '<span><span style="display:inline-block;width:3px;height:12px;background:#2563EB;margin-right:4px"></span> Instalacion</span>'
+        + '<span><span style="display:inline-block;width:3px;height:12px;background:#7C3AED;margin-right:4px"></span> Informe</span>'
+        + '<span style="color:#64748B;font-weight:400">&#9656; Click en un ensayo para ver sus actividades</span>';
       container.appendChild(legend);
       
       return container;
