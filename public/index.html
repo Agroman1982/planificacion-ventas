@@ -1016,6 +1016,12 @@
           sel.appendChild(opt);
         });
         sel.onchange = function(){
+          // La app original solo soporta Ventas. Los demas modulos (I+D, Marketing)
+          // estan implementados en la app modular /app.
+          if(sel.value !== 'ventas'){
+            location.href = '/app';
+            return;
+          }
           currentModule = sel.value;
           loadModuleSchema();
         };
