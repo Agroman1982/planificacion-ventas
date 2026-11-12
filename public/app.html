@@ -102,6 +102,20 @@
   .vt-cat-row:last-child{border-bottom:none}
   .vt-nav{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
   .cal-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
+  /* Identidad del representante (solo Planificacion de Ventas) */
+  .vt-who{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:#F1F5FA;border:1px solid var(--line);border-bottom:4px solid var(--bg);border-radius:12px;padding:10px 16px;margin-bottom:14px}
+  .vt-who-name{font-size:20px;font-weight:800;line-height:1.15;color:var(--ink)}
+  .vt-who-role{font-size:12px;color:var(--muted);margin-top:2px}
+  .vt-who-mod{font-size:12px;font-weight:700;color:var(--bg)}
+  /* Calendario: + por dia, marcas de estado y leyenda de representantes */
+  .cal-dayhd{display:flex;justify-content:space-between;align-items:center;gap:4px}
+  .cal-add{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;color:var(--brand);font-weight:800;font-size:15px;line-height:1;cursor:pointer;user-select:none}
+  .cal-add:hover{background:#dbeafe}
+  .cal-mark{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;min-width:13px;border-radius:50%;font-size:9px;font-weight:800;line-height:1;margin-right:3px;background:#fff;vertical-align:middle}
+  .cal-mark.ok{color:#15803D}
+  .cal-mark.no{color:#B91C1C}
+  .cal-leyenda-reps{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;font-size:12px;color:var(--muted)}
+  .cal-leyenda-reps i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -144,6 +158,14 @@
 
   <!-- MODULE VIEW -->
   <div id="moduleView" class="hide">
+    <!-- Nombre del representante y rol: solo se muestra en Planificacion de Ventas -->
+    <div id="vtWhoCard" class="vt-who hide">
+      <div>
+        <div class="vt-who-name" id="vtWhoName">&mdash;</div>
+        <div class="vt-who-role" id="vtWhoRole"></div>
+      </div>
+      <div class="vt-who-mod" id="vtWhoModule"></div>
+    </div>
     <div class="topbar">
       <div>
         <div style="font-weight:700;font-size:18px" id="moduleTitle">&mdash;</div>
@@ -199,6 +221,8 @@
 (function(){
   var me=null, currentModule='ventas', moduleSchema=null, rows=[], ownerNames={}, moduleUsers=[], editingId=null;
   var currentView='lista';
+  var ROLES_TXT={admin:'Administrador',supervisor:'Supervisor',coordinador:'Coordinador',
+    retail:'Vendedor Retail',kam:'KAM (Agroindustria)',promotor:'Promotor'};
 
   // Modulos que conservan el diseno de vista unica: el formulario "Nuevo registro"
   // arriba y, debajo, la lista de registros en una tarjeta con buscador y boton de
@@ -234,7 +258,10 @@
     me=user;
     $('login').classList.add('hide');
     $('whoName').textContent=me.name;
-    $('whoRole').textContent=me.role==='admin'?'Administrador':(me.role==='supervisor'?'Supervisor':(me.role==='coordinador'?'Coordinador':me.role));
+    $('whoRole').textContent=ROLES_TXT[me.role]||me.role;
+    // Tarjeta superior con el nombre del representante y su rol (solo Ventas).
+    $('vtWhoName').textContent=me.name||me.username||'—';
+    $('vtWhoRole').textContent=ROLES_TXT[me.role]||me.role||'—';
     if(window.RainbowClientes) RainbowClientes.cargar(); // listado maestro de clientes
 
     // Puente entre la app modular y las herramientas de Ventas.
@@ -286,12 +313,15 @@
     $('moduleSelector').classList.add('hide');
     $('moduleView').classList.remove('hide');
     if($('moduleSwitch')) $('moduleSwitch').value=moduleId;
+    // La tarjeta de nombre + rol es exclusiva del modulo de Ventas.
+    $('vtWhoCard').classList.toggle('hide', moduleId!=='ventas');
     if(window.VentasTools) VentasTools.onModuleChange(moduleId);
 
     api('GET','/api/modules/'+moduleId+'/schema').then(function(res){
       if(res.ok){
         moduleSchema=res.data;
         $('moduleTitle').textContent=moduleSchema.name;
+        $('vtWhoModule').textContent=moduleSchema.name;
         // El modulo de Ventas conserva el subtitulo original.
         $('moduleSubtitle').textContent=esVistaUnica()?'Módulo activo':'Modulo activo';
         // Cargar usuarios para userselect
@@ -642,7 +672,8 @@
       gridEl.innerHTML='';
       monthLabel.textContent=MESES[viewMonth]+' '+viewYear;
 
-      ['Lun','Mar','Mie','Jue','Vie','Sab','Dom'].forEach(function(dn){
+      // La semana empieza en Domingo y termina en Sabado (ambos modulos).
+      ['Dom','Lun','Mar','Mie','Jue','Vie','Sab'].forEach(function(dn){
         var dh=document.createElement('div');
         dh.className='cal-mday-h';
         dh.textContent=dn;
@@ -650,7 +681,7 @@
       });
 
       var first=new Date(viewYear,viewMonth,1);
-      var offset=(first.getDay()||7)-1;   // la semana empieza en lunes
+      var offset=first.getDay();   // 0 = domingo, por lo que no hay corrimiento
       var start=new Date(viewYear,viewMonth,1-offset);
 
       for(var i=0;i<42;i++){

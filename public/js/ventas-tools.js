@@ -18,12 +18,15 @@
   var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   var ESTADOS = ['Planificado', 'En curso', 'Realizado', 'No realizado'];
   var ESTADO_COLOR = { 'Planificado': '#9e9e9e', 'En curso': '#ff9800', 'Realizado': '#4caf50', 'No realizado': '#f44336' };
+  // Un color distinto por representante cuando el filtro esta en "Todos".
+  var PALETTE = ['#1D4ED8', '#15803D', '#B45309', '#6D28D9', '#BE123C', '#0F766E', '#C2410C', '#334155', '#1E40AF', '#166534', '#9D174D', '#155E75'];
+  var DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
   var st = {
     usuarios: [], canManageTeam: false, tieneEquipo: false,
     myGoal: null, teamGoals: [], goalsCache: {}, metaMonth: 0, metaYear: 0,
     todos: [], pendingTodoId: null,
-    vista: null, calY: 0, calM: 0,
+    vista: 'calendario', calY: 0, calM: 0,
     catalogo: { clientes: [], editable: false, total: 0 }, catTrabajo: [],
     fSemana: '', fEstado: '', fOwner: '',
     editUserId: null
@@ -64,8 +67,8 @@
       '<div class="card vt-toolbar">' +
       '  <div class="vt-botones">' +
       '    <span class="muted vt-etiqueta">Vistas:</span>' +
-      '    <button class="ghost small" data-vt="lista">Lista</button>' +
       '    <button class="ghost small" data-vt="calendario">Calendario</button>' +
+      '    <button class="ghost small" data-vt="lista">Lista</button>' +
       '    <button class="ghost small" data-vt="resumen">Resumen</button>' +
       '    <span style="flex:1"></span>' +
       '    <button class="ghost small" data-vt="metas" id="vtMetas">Metas</button>' +
@@ -623,40 +626,84 @@
   function renderCalendario(container) {
     var d = new Date(st.calY, st.calM, 1);
     var nombre = MESES[st.calM] + ' ' + st.calY;
+    var lista = filtrar(rows());
+    var porDia = {}, repsVistos = {};
+    var on = ownerNames();
+
+    lista.forEach(function (r) {
+      if (!r.dia) return;
+      var clave = String(r.dia).slice(0, 10);
+      (porDia[clave] = porDia[clave] || []).push(r);
+      repsVistos[r.ownerId] = on[r.ownerId] || r.ownerId || '—';
+    });
+
+    // Con el filtro "Todos" cada representante tiene su propio color; si hay
+    // un vendedor concreto seleccionado (o el usuario solo ve lo suyo) se
+    // mantiene el color por estado.
+    var porVendedor = veVarios() && !st.fOwner;
+    var ids = Object.keys(repsVistos).sort(function (a, b) {
+      return String(repsVistos[a]).localeCompare(String(repsVistos[b]), 'es');
+    });
+    var colorOwner = {};
+    ids.forEach(function (id, i) { colorOwner[id] = PALETTE[i % PALETTE.length]; });
+
     var html = '<div class="card"><div class="vt-nav">' +
       '<button class="ghost small" id="vtCalPrev">Anterior</button>' +
       '<b>' + nombre + '</b>' +
       '<button class="ghost small" id="vtCalHoy">Hoy</button>' +
       '<button class="ghost small" id="vtCalNext">Siguiente</button></div>' +
       '<div class="cal-scroll"><div class="cal-month">' +
-      ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(function (x) { return '<div class="cal-mday-h">' + x + '</div>'; }).join('');
-    var inicio = (d.getDay() + 6) % 7;
+      DIAS.map(function (x) { return '<div class="cal-mday-h">' + x + '</div>'; }).join('');
+
+    // Domingo = 0: la primera columna es Domingo y la ultima Sabado.
+    var inicio = d.getDay();
     var primero = new Date(st.calY, st.calM, 1 - inicio);
-    var porDia = {};
-    filtrar(rows()).forEach(function (r) { if (r.dia) (porDia[r.dia] = porDia[r.dia] || []).push(r); });
     for (var i = 0; i < 42; i++) {
       var dia = new Date(primero.getFullYear(), primero.getMonth(), primero.getDate() + i);
       var clave = iso(dia);
       var fuera = dia.getMonth() !== st.calM;
       var fin = dia.getDay() === 0 || dia.getDay() === 6;
       html += '<div class="cal-mday' + (fuera ? ' out' : '') + (fin ? ' weekend' : '') + (clave === hoy() ? ' today' : '') + '">' +
-        '<div class="dnum">' + dia.getDate() + '</div>';
-      (porDia[clave] || []).slice(0, 4).forEach(function (r) {
-        var color = ESTADO_COLOR[r.estado] || '#64748b';
-        html += '<span class="cal-chip" data-row="' + esc(r.id) + '" style="background:' + color + '">' + esc(r.cliente || r.trabajo || 'Actividad') + '</span>';
+        '<div class="cal-dayhd"><span class="dnum">' + dia.getDate() + '</span>' +
+        '<span class="cal-add" data-day="' + clave + '" title="Agregar un registro en este dia">+</span></div>';
+      var delDia = porDia[clave] || [];
+      delDia.slice(0, 8).forEach(function (r) {
+        var color = porVendedor ? (colorOwner[r.ownerId] || '#64748b') : (ESTADO_COLOR[r.estado] || '#64748b');
+        // Solo se marca lo ya ejecutado; lo pendiente no lleva ninguna marca.
+        var marca = r.estado === 'Realizado' ? '<span class="cal-mark ok">✓</span>'
+          : r.estado === 'No realizado' ? '<span class="cal-mark no">✗</span>' : '';
+        var tip = (porVendedor ? (on[r.ownerId] || '') + ' — ' : '') + (r.cliente || '') + ' · ' + (r.estado || '');
+        html += '<span class="cal-chip" data-row="' + esc(r.id) + '" title="' + esc(tip) + '" style="background:' + color + '">' +
+          marca + esc(r.cliente || r.trabajo || 'Actividad') + '</span>';
       });
-      if ((porDia[clave] || []).length > 4) html += '<span class="muted">+' + ((porDia[clave] || []).length - 4) + ' más</span>';
+      if (delDia.length > 8) html += '<span class="muted">+' + (delDia.length - 8) + ' más</span>';
       html += '</div>';
     }
-    html += '</div></div><div class="cal-legend">' + Object.keys(ESTADO_COLOR).map(function (e) {
-      return '<span><i style="background:' + ESTADO_COLOR[e] + '"></i> ' + e + '</span>';
-    }).join('') + '</div></div>';
+    html += '</div></div><div class="cal-leyenda-reps">';
+    if (porVendedor) {
+      ids.forEach(function (id) {
+        html += '<span><i style="background:' + colorOwner[id] + '"></i>' + esc(repsVistos[id]) + '</span>';
+      });
+      if (!ids.length) html += '<span>Sin actividades para este filtro.</span>';
+    } else {
+      Object.keys(ESTADO_COLOR).forEach(function (e) {
+        html += '<span><i style="background:' + ESTADO_COLOR[e] + '"></i>' + esc(e) + '</span>';
+      });
+    }
+    html += '</div><div class="cal-legend" style="font-size:11px">' +
+      '<span><span class="cal-mark ok">✓</span> Realizado</span>' +
+      '<span><span class="cal-mark no">✗</span> No realizado</span>' +
+      '<span>Sin marca = pendiente</span></div></div>';
     container.innerHTML = html;
+
     $('vtCalPrev').onclick = function () { moverCal(-1); };
     $('vtCalNext').onclick = function () { moverCal(1); };
     $('vtCalHoy').onclick = function () { st.calY = new Date().getFullYear(); st.calM = new Date().getMonth(); RB.render(); };
     container.querySelectorAll('[data-row]').forEach(function (c) {
       c.onclick = function () { RB.openDetail(c.getAttribute('data-row')); };
+    });
+    container.querySelectorAll('[data-day]').forEach(function (a) {
+      a.onclick = function () { abrirNuevoRegistro(a.getAttribute('data-day')); };
     });
   }
 
@@ -664,6 +711,93 @@
     var d = new Date(st.calY, st.calM + delta, 1);
     st.calY = d.getFullYear(); st.calM = d.getMonth();
     RB.render();
+  }
+
+  // ------------------------------------------------------------------
+  // Ventana flotante del "+" de cada dia del calendario.
+  // Usa el mismo schema y el mismo POST que el formulario principal, pero
+  // con ids propios (vtN_*) para no chocar con los campos field_* de app.html.
+  // ------------------------------------------------------------------
+  function campoNuevo(f, esAdmin) {
+    var id = 'vtN_' + f.name;
+    var solo = (f.autoFill && !esAdmin) ? ' readonly title="Se calcula automaticamente"' : '';
+    var ctrl;
+    if (f.type === 'textarea') ctrl = '<textarea id="' + id + '" rows="2"' + solo + '></textarea>';
+    else if (f.type === 'select') ctrl = '<select id="' + id + '">' + (f.options || []).map(function (o) {
+      return '<option value="' + esc(o) + '">' + esc(o) + '</option>';
+    }).join('') + '</select>';
+    else if (f.type === 'date') ctrl = '<input type="date" id="' + id + '"' + solo + '>';
+    else if (f.type === 'number') ctrl = '<input type="number" step="0.01" min="0" id="' + id + '" value="' + (f.default || 0) + '">';
+    else ctrl = '<input type="text" id="' + id + '"' + solo + '>';
+    return '<div' + (f.type === 'textarea' ? ' style="grid-column:1/-1"' : '') + '>' +
+      '<label>' + esc(f.label) + (f.required ? ' *' : '') + '</label>' + ctrl + '</div>';
+  }
+
+  function abrirNuevoRegistro(dia) {
+    var schema = RB.schema();
+    if (RB.module() !== 'ventas' || !schema || !schema.schema) return;
+    var fields = schema.schema.fields || [];
+    var u = me();
+    var esAdmin = !!(u && u.role === 'admin');
+    var html = '<div class="grid">' + fields.map(function (f) { return campoNuevo(f, esAdmin); }).join('') + '</div>';
+
+    if (esJefe()) {
+      var candidatos = reps().slice();
+      if (!candidatos.length && u) candidatos = [u];
+      var opciones = (u ? '<option value="' + esc(u.id) + '">' + esc(u.name) + ' (yo)</option>' : '') +
+        candidatos.filter(function (x) { return !u || x.id !== u.id; }).map(function (x) {
+          return '<option value="' + esc(x.id) + '">' + esc(x.name) + ' (' + esc(ROLE_LABEL[x.role] || x.role) + ')</option>';
+        }).join('');
+      html += '<div style="margin-top:10px"><label>Representante</label><select id="vtNuevoOwner">' + opciones + '</select></div>';
+    }
+    html += '<div id="vtNuevoErr" class="vt-err"></div>' +
+      '<div style="display:flex;gap:8px;margin-top:10px">' +
+      '<button id="vtNuevoGuardar" style="flex:1">Guardar registro</button>' +
+      '<button class="ghost" id="vtNuevoCancelar">Cancelar</button></div>';
+
+    abrirModal('Nuevo registro · ' + dia, html, function () {
+      fields.forEach(function (f) {
+        if (f.default !== undefined && f.type === 'select') setVal('vtN_' + f.name, f.default);
+        if (f.type === 'number') setVal('vtN_' + f.name, f.default || 0);
+      });
+      setVal('vtN_dia', dia);
+      if (window.RainbowClientes && $('vtN_cliente')) RainbowClientes.adjuntar($('vtN_cliente'));
+      $('vtNuevoCancelar').onclick = cerrarModal;
+      $('vtNuevoGuardar').onclick = function () { guardarNuevoRegistro(dia); };
+      if ($('vtN_cliente')) $('vtN_cliente').focus();
+    });
+  }
+
+  function guardarNuevoRegistro(dia) {
+    var schema = RB.schema();
+    var fields = (schema && schema.schema && schema.schema.fields) || [];
+    var values = {}, faltan = [];
+    fields.forEach(function (f) {
+      var el = $('vtN_' + f.name);
+      if (!el) return;
+      var v = el.value == null ? '' : String(el.value).trim();
+      values[f.name] = (f.type === 'number') ? (Number(v) || 0) : v;
+      if (f.required && !v) faltan.push(f.label);
+    });
+    if (faltan.length) { error('vtNuevoErr', 'Completa los campos: ' + faltan.join(', ')); return; }
+    var sel = $('vtNuevoOwner');
+    values.ownerId = (sel && sel.value) ? sel.value : me().id;
+    error('vtNuevoErr', 'Guardando...', true);
+    api('POST', '/api/modules/ventas/rows', values).then(function (res) {
+      if (!res.ok) { error('vtNuevoErr', (res.data && res.data.error) || 'No se pudo guardar'); return; }
+      // Si el "+" era de un dia del mes vecino, el calendario salta a ese mes
+      // para que el registro recien creado quede a la vista.
+      var p = String(dia).split('-');
+      st.calY = Number(p[0]); st.calM = Number(p[1]) - 1;
+      cerrarModal();
+      RB.loadRows();
+      var row = res.data && res.data.row;
+      if (row && row.clientePotencial) {
+        toast('Cliente nuevo guardado como potencial: ' + values.cliente + '. Tu supervisor puede agregarlo al listado.');
+      } else {
+        toast('Registro guardado correctamente.');
+      }
+    });
   }
 
   // ------------------------------------------------------------------
@@ -763,12 +897,12 @@
   // Cambio de modulo y edicion de registros
   // ------------------------------------------------------------------
   // Las herramientas de Ventas solo deben verse cuando el modulo activo es
-  // "ventas". Al salir se limpia la vista alternativa (Calendario/Resumen)
-  // para que al volver se muestre la lista, que es el diseno de vista unica.
+  // "ventas". Al entrar (o volver) se abre siempre el Calendario, que es la
+  // vista marcada por defecto; al salir se limpia la vista alternativa.
   function onModuleChange(id) {
     var host = $('vtToolbar');
     if (host) host.classList.toggle('hide', id !== 'ventas');
-    if (id !== 'ventas') st.vista = null;
+    st.vista = (id === 'ventas') ? (st.vista || 'calendario') : null;
     actualizarPermisos();
   }
 
