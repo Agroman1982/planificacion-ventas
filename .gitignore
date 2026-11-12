@@ -8,3 +8,10 @@ cloudflared.exe
 .DS_Store
 *.zip
 cookies*.txt
+
+# Copias de seguridad: NUNCA versionar. Los snapshots contienen los hashes de
+# las contrasenas de los usuarios y el repositorio de GitHub es publico.
+backups/
+backups-rainbow/
+*.backup.json
+rainbow-backup-*.json

@@ -68,7 +68,9 @@ function loadModulesRegistry() {
 let saveTimer = null;
 function saveGlobalData() {
   const usersFile = path.join(DATA_DIR, 'data', 'users.json');
-  fs.writeFileSync(usersFile, JSON.stringify(globalDb, null, 2));
+  // Escritura atomica: si el proceso se corta a mitad, el archivo anterior
+  // sigue intacto en lugar de quedar truncado.
+  return writeJsonSafe(usersFile, globalDb);
 }
 function saveModulesRegistry() {
   const regFile = path.join(__dirname, 'modules.json');
@@ -160,12 +162,136 @@ function saveClientCatalog(lista) {
   };
   const dir = path.join(DATA_DIR, 'data');
   try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ya existe */ }
-  fs.writeFileSync(path.join(dir, 'clients.json'), JSON.stringify(payload, null, 2));
+  writeJsonSafe(path.join(dir, 'clients.json'), payload);
   return { clientes: final, updatedAt: payload.updatedAt };
 }
 
 function clientesDelCatalogo(cat) {
   return (cat && Array.isArray(cat.clientes)) ? cat.clientes : loadClientCatalog().clientes;
+}
+
+// ---------------- Copia de seguridad / restauracion ----------------
+// El disco de Render (/data) puede perderse. Este snapshot permite recuperar
+// TODO el estado de la aplicacion en un unico archivo JSON restaurable.
+const BACKUP_VERSION = 1;
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+
+// Escritura atomica: se escribe en un temporal y se renombra, para que un
+// corte de luz o un reinicio a mitad de escritura NO deje un JSON corrupto.
+function writeFileAtomic(file, content) {
+  const dir = path.dirname(file);
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ya existe */ }
+  const tmp = file + '.tmp-' + process.pid + '-' + Date.now();
+  try {
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, file);
+    return true;
+  } catch (e) {
+    console.error('Error al escribir', file, e.message);
+    try { fs.unlinkSync(tmp); } catch (e2) { /* nada que limpiar */ }
+    return false;
+  }
+}
+
+// Reemplaza una escritura directa por una atomica y tolerante a fallos.
+function writeJsonSafe(file, obj) {
+  return writeFileAtomic(file, JSON.stringify(obj, null, 2));
+}
+
+// Construye el snapshot completo del estado de la aplicacion.
+// Las sesiones NO se incluyen: caducan solas y no aportan a una restauracion.
+function buildSnapshot() {
+  const clientesFile = path.join(DATA_DIR, 'data', 'clients.json');
+  let clients = {};
+  if (fs.existsSync(clientesFile)) {
+    try { clients = JSON.parse(fs.readFileSync(clientesFile, 'utf8')); } catch (e) { clients = {}; }
+  }
+  const todosFile = path.join(DATA_DIR, 'data', 'todos.json');
+  let todos = [];
+  if (fs.existsSync(todosFile)) {
+    try { todos = JSON.parse(fs.readFileSync(todosFile, 'utf8')); } catch (e) { todos = []; }
+  }
+  const modules = {};
+  modulesRegistry.modules.forEach(m => {
+    const dataPath = getModuleDataPath(m.id);
+    if (!dataPath) return;
+    const rowsFile = path.join(dataPath, 'rows.json');
+    let rows = [];
+    if (fs.existsSync(rowsFile)) {
+      try { rows = JSON.parse(fs.readFileSync(rowsFile, 'utf8')); } catch (e) { rows = { rows: [] }; }
+    }
+    modules[m.id] = { name: m.name, rows: rows };
+  });
+  return {
+    backupVersion: BACKUP_VERSION,
+    generadoEn: new Date().toISOString(),
+    app: { nombre: 'Rainbow Platform', node: process.version },
+    usuarios: globalDb.users.map(u => ({
+      id: u.id, name: u.name, username: u.username, role: u.role,
+      supervisorIds: Array.isArray(u.supervisorIds) ? u.supervisorIds : [],
+      supervisorId: u.supervisorId || null,
+      salt: u.salt, hash: u.hash, createdAt: u.createdAt
+    })),
+    metas: globalDb.goals || [],
+    clientes: clients,
+    todos: todos,
+    modulos: modules,
+    clientesBase: loadClientesBase()
+  };
+}
+
+// Restaura un snapshot sobre el estado actual.
+// Antes de escribir NADA se guarda una copia de seguridad de lo que hay ahora,
+// para que una restauracion fallida nunca destruya el estado previo.
+function restoreSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') throw new Error('Snapshot inválido');
+  if (!Array.isArray(snapshot.usuarios)) throw new Error('El snapshot no contiene usuarios');
+
+  // 1) Red de seguridad del estado actual
+  const safety = buildSnapshot();
+  try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); } catch (e) { /* ya existe */ }
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  writeJsonSafe(path.join(BACKUP_DIR, 'pre-restore-' + stamp + '.json'), safety);
+
+  // 2) Usuarios, metas y sesiones (las sesiones se limpian)
+  globalDb.users = snapshot.usuarios.map(u => ({
+    id: u.id, name: u.name, username: u.username, role: u.role,
+    supervisorId: u.supervisorId || (Array.isArray(u.supervisorIds) && u.supervisorIds[0]) || null,
+    supervisorIds: Array.isArray(u.supervisorIds) ? u.supervisorIds : [],
+    salt: u.salt, hash: u.hash, createdAt: u.createdAt || Date.now()
+  }));
+  globalDb.goals = Array.isArray(snapshot.metas) ? snapshot.metas : [];
+  globalDb.sessions = {};
+  saveGlobalData();
+
+  // 3) Catalogo de clientes (deltas sobre la base versionada)
+  if (snapshot.clientes && typeof snapshot.clientes === 'object') {
+    writeJsonSafe(path.join(DATA_DIR, 'data', 'clients.json'), snapshot.clientes);
+  }
+
+  // 4) ToDo
+  if (Array.isArray(snapshot.todos)) {
+    writeJsonSafe(path.join(DATA_DIR, 'data', 'todos.json'), snapshot.todos);
+  }
+
+  // 5) Registros de cada modulo
+  const modulos = snapshot.modulos || {};
+  Object.keys(modulos).forEach(id => {
+    const dataPath = getModuleDataPath(id);
+    if (!dataPath) return;
+    const rows = modulos[id] && modulos[id].rows ? modulos[id].rows : { rows: [] };
+    writeJsonSafe(path.join(dataPath, 'rows.json'), rows);
+  });
+
+  return {
+    usuarios: globalDb.users.length,
+    metas: globalDb.goals.length,
+    todos: Array.isArray(snapshot.todos) ? snapshot.todos.length : 0,
+    modulos: Object.keys(modulos).map(id => ({
+      id: id,
+      registros: (modulos[id].rows && modulos[id].rows.rows) ? modulos[id].rows.rows.length : 0
+    }))
+  };
 }
 
 // ---------------- Capa de datos por módulo ----------------
@@ -188,9 +314,8 @@ function loadModuleData(moduleId) {
 function saveModuleData(moduleId, data) {
   const dataPath = getModuleDataPath(moduleId);
   if (!dataPath) return;
-  try { fs.mkdirSync(dataPath, { recursive: true }); } catch (e) { /* ya existe */ }
   const rowsFile = path.join(dataPath, 'rows.json');
-  fs.writeFileSync(rowsFile, JSON.stringify(data, null, 2));
+  writeJsonSafe(rowsFile, data);
 }
 
 function loadModuleSchema(moduleId) {
@@ -291,15 +416,26 @@ function sendJSON(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(body);
 }
-function readBody(req) {
+function readBody(req, maxBytes) {
+  const limite = maxBytes || 1e6;
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', c => { data += c; if (data.length > 1e6) req.destroy(); });
+    let aborted = false;
+    req.on('data', c => {
+      if (aborted) return;
+      data += c;
+      if (data.length > limite) {
+        aborted = true;
+        req.destroy();
+        reject(new Error('El contenido es demasiado grande (máximo ' + Math.round(limite / 1024) + ' KB)'));
+      }
+    });
     req.on('end', () => {
+      if (aborted) return;
       if (!data) return resolve({});
       try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('JSON inválido')); }
     });
-    req.on('error', reject);
+    req.on('error', err => { if (!aborted) reject(err); });
   });
 }
 function publicUser(u) {
@@ -999,6 +1135,47 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { ok: true });
     }
 
+    // ---- Copia de seguridad y restauracion ----
+    // GET  /api/admin/backup  -> snapshot completo (JSON descargable)
+    // POST /api/admin/restore -> restaura un snapshot previo
+    // Se permite a admin y supervisor (en produccion el responsable de Rainbow
+    // tiene rol "supervisor"), nunca a roles inferiores.
+    if (pathname === '/api/admin/backup' && method === 'GET') {
+      if (!puedeEditarClientes(me)) return sendJSON(res, 403, { error: 'Solo administrador o supervisor' });
+      const snapshot = buildSnapshot();
+      const resumen = {
+        usuarios: snapshot.usuarios.length,
+        metas: snapshot.metas.length,
+        todos: snapshot.todos.length,
+        modulos: Object.keys(snapshot.modulos).map(id => ({
+          id: id,
+          registros: (snapshot.modulos[id].rows && snapshot.modulos[id].rows.rows) ? snapshot.modulos[id].rows.rows.length : 0
+        }))
+      };
+      return sendJSON(res, 200, { ok: true, resumen: resumen, snapshot: snapshot });
+    }
+
+    if (pathname === '/api/admin/restore' && method === 'POST') {
+      if (!puedeEditarClientes(me)) return sendJSON(res, 403, { error: 'Solo administrador o supervisor' });
+      const body = await readBody(req, 20 * 1024 * 1024);
+      // Confirmacion explicita: evita restauraciones accidentales.
+      if (body.confirmar !== 'RESTAURAR') {
+        return sendJSON(res, 400, { error: 'Falta la confirmación. Envía confirmar: "RESTAURAR"' });
+      }
+      let snapshot = body.snapshot;
+      if (!snapshot && body.snapshotPath) {
+        try { snapshot = JSON.parse(fs.readFileSync(String(body.snapshotPath), 'utf8')); }
+        catch (e) { return sendJSON(res, 400, { error: 'No se pudo leer el archivo indicado' }); }
+      }
+      try {
+        const resultado = restoreSnapshot(snapshot);
+        return sendJSON(res, 200, { ok: true, restaurado: resultado });
+      } catch (e) {
+        console.error('Error restaurando:', e);
+        return sendJSON(res, 400, { error: e.message || 'No se pudo restaurar' });
+      }
+    }
+
     // ---- Listado maestro de clientes (autocompletado en Ventas) ----
     // GET: TODOS los usuarios reciben el listado completo (393 clientes de la base).
     if (pathname === '/api/clients' && method === 'GET') {
@@ -1290,8 +1467,21 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// Inicialización
+// ---------------- Red de seguridad del proceso ----------------
+// Sin esto, un fallo puntual de disco (por ejemplo al guardar) lanza una
+// excepcion no capturada y MATA el proceso Node: Render lo reinicia, pero si
+// el fallo se repite entra en bucle y la app queda caida. Con estos manejadores
+// el error se registra y el servidor sigue sirviendo.
+process.on('uncaughtException', (err) => {
+  console.error('[excepción no capturada]', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[promesa rechazada sin manejar]', err && err.stack ? err.stack : err);
+});
+
+// ---------------- Inicialización ----------------
 try { fs.mkdirSync(path.join(DATA_DIR, 'data'), { recursive: true }); } catch (e) { /* ya existe */ }
+try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); } catch (e) { /* ya existe */ }
 loadGlobalData();
 loadModulesRegistry();
 migrate();
