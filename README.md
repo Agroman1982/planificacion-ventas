@@ -39,8 +39,11 @@ Esto cubre "agregar, retirar o renombrar vendedores" sin tocar código.
 
 ## Campos de cada actividad
 Representante (automático), Semana, Día, Ubicación, Cliente, Trabajo a realizar,
-Venta a concretar (US$), Estado (Planificado / En curso / Realizado / No realizado),
-Venta realizada (US$), Observaciones.
+Venta a concretar (US$), Estado (En curso / Realizado / No realizado),
+Venta realizada (US$), Observaciones. La **Semana** se calcula sola desde la fecha
+y no es editable; el **Estado** no aparece en el formulario (todo registro nace
+«En curso») y se resuelve en el detalle junto con si la venta se concretó, el
+motivo cuando no se logró y el monto real de la venta.
 
 ## Seguridad
 - Contraseñas hasheadas (scrypt) y sesión por cookie HttpOnly.

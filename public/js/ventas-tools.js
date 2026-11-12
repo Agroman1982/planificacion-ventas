@@ -16,8 +16,9 @@
   var ROLES = ['admin', 'supervisor', 'coordinador', 'retail', 'kam', 'promotor'];
   var ROLES_EQUIPO = ['coordinador', 'retail', 'kam', 'promotor'];
   var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-  var ESTADOS = ['Planificado', 'En curso', 'Realizado', 'No realizado'];
-  var ESTADO_COLOR = { 'Planificado': '#9e9e9e', 'En curso': '#ff9800', 'Realizado': '#4caf50', 'No realizado': '#f44336' };
+  var ESTADOS = ['En curso', 'Realizado', 'No realizado'];
+  var ESTADO_COLOR = { 'En curso': '#ff9800', 'Realizado': '#4caf50', 'No realizado': '#f44336' };
+  var MES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   // Un color distinto por representante cuando el filtro esta en "Todos".
   var PALETTE = ['#1D4ED8', '#15803D', '#B45309', '#6D28D9', '#BE123C', '#0F766E', '#C2410C', '#334155', '#1E40AF', '#166534', '#9D174D', '#155E75'];
   var DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -51,6 +52,44 @@
   function pad(n) { return String(n).padStart(2, '0'); }
   function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
   function hoy() { return iso(new Date()); }
+
+  // Replica EXACTA de etiquetaSemanaDesdeFecha() del servidor: numero de semana
+  // ISO + rango lunes..domingo. Se usa solo para mostrar el valor automatico
+  // en el formulario; el servidor siempre recalcula al guardar.
+  function etiquetaSemana(s) {
+    if (typeof s !== 'string' || !s) return '';
+    var p = s.split('-'); if (p.length < 3) return '';
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    if (isNaN(d.getTime())) return '';
+    var dow = d.getDay() || 7;
+    var lun = new Date(d.getFullYear(), d.getMonth(), d.getDate() - (dow - 1));
+    var dom = new Date(lun.getFullYear(), lun.getMonth(), lun.getDate() + 6);
+    var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    var tdow = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - tdow);
+    var ys = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    var n = Math.ceil((((t - ys) / 86400000) + 1) / 7);
+    var rango = lun.getMonth() === dom.getMonth()
+      ? lun.getDate() + '-' + dom.getDate() + ' ' + MES_ABBR[dom.getMonth()]
+      : lun.getDate() + ' ' + MES_ABBR[lun.getMonth()] + '-' + dom.getDate() + ' ' + MES_ABBR[dom.getMonth()];
+    return 'Sem ' + n + ' (' + rango + ')';
+  }
+
+  // Mantiene "semana" siempre sincronizada con "dia" y bloqueada.
+  function ligarSemana(idDia, idSemana) {
+    var dia = $(idDia), sem = $(idSemana);
+    if (!dia || !sem) return;
+    sem.readOnly = true;
+    sem.title = 'Se calcula automaticamente a partir de la fecha';
+    function sync() { setVal(idSemana, etiquetaSemana(val(idDia))); }
+    if (!dia._vtSemanaLigada) {
+      dia._vtSemanaLigada = true;
+      dia.addEventListener('input', sync);
+      dia.addEventListener('change', sync);
+    }
+    sync();
+  }
+
   function esJefe() { var u = me(); return !!(u && (u.role === 'admin' || u.role === 'supervisor' || u.role === 'coordinador' || st.canManageTeam || st.tieneEquipo)); }
   function veVarios() { return esJefe(); }
   function reps() { return st.usuarios.filter(function (u) { return ROLES_EQUIPO.indexOf(u.role) >= 0; }); }
@@ -176,7 +215,26 @@
   // ------------------------------------------------------------------
   function decorarFormulario() {
     var f = $('dynamicForm');
-    if (!f || RB.module() !== 'ventas' || !esJefe()) return;
+    if (!f || RB.module() !== 'ventas') return;
+
+    // 1) Semana automatica y NO editable para cualquier rol (incluido admin).
+    ligarSemana('field_dia', 'field_semana');
+
+    // 2) Estado: oculto. Todo registro nuevo nace en "En curso"; al editar
+    //    se conserva el estado real (Realizado / No realizado).
+    var est = $('field_estado');
+    if (est) {
+      if (est.parentElement) est.parentElement.style.display = 'none';
+      if (!est.value || est.value === 'Planificado') est.value = 'En curso';
+    }
+    // La venta lograda tampoco se elige al crear: se responde en el detalle.
+    var logr = $('field_ventaLograda');
+    if (logr) {
+      if (logr.parentElement) logr.parentElement.style.display = 'none';
+      if (!logr.value) logr.value = 'Pendiente';
+    }
+
+    if (!esJefe()) return;
     var sel = $('vtOwner');
     if (!sel) {
       var grid = f.querySelector('.grid') || f;
@@ -402,7 +460,7 @@
     setVal('field_trabajo', t.trabajo || '');
     setVal('field_ventaConcretar', t.ventaConcretar || '');
     setVal('field_observaciones', t.observaciones || '');
-    setVal('field_estado', 'Planificado');
+    setVal('field_estado', 'En curso');
     if (t.assigneeId && $('vtOwner')) $('vtOwner').value = t.assigneeId;
     st.pendingTodoId = id;
     var d = $('field_dia'); if (d) d.focus();
@@ -718,9 +776,15 @@
   // Usa el mismo schema y el mismo POST que el formulario principal, pero
   // con ids propios (vtN_*) para no chocar con los campos field_* de app.html.
   // ------------------------------------------------------------------
-  function campoNuevo(f, esAdmin) {
+  function campoNuevo(f) {
     var id = 'vtN_' + f.name;
-    var solo = (f.autoFill && !esAdmin) ? ' readonly title="Se calcula automaticamente"' : '';
+    // Estado y venta lograda NO se eligen al crear: viajan ocultos con su
+    // valor inicial y se resuelven despues desde el detalle de la actividad.
+    if (f.hiddenInForm) {
+      return '<input type="hidden" id="' + id + '" value="' + esc(f.default || (f.options && f.options[0]) || '') + '">';
+    }
+    // "semana" es automatica y no editable para TODOS, admin incluido.
+    var solo = f.autoFill ? ' readonly title="Se calcula automaticamente a partir de la fecha"' : '';
     var ctrl;
     if (f.type === 'textarea') ctrl = '<textarea id="' + id + '" rows="2"' + solo + '></textarea>';
     else if (f.type === 'select') ctrl = '<select id="' + id + '">' + (f.options || []).map(function (o) {
@@ -738,8 +802,7 @@
     if (RB.module() !== 'ventas' || !schema || !schema.schema) return;
     var fields = schema.schema.fields || [];
     var u = me();
-    var esAdmin = !!(u && u.role === 'admin');
-    var html = '<div class="grid">' + fields.map(function (f) { return campoNuevo(f, esAdmin); }).join('') + '</div>';
+    var html = '<div class="grid">' + fields.map(function (f) { return campoNuevo(f); }).join('') + '</div>';
 
     if (esJefe()) {
       var candidatos = reps().slice();
@@ -761,6 +824,9 @@
         if (f.type === 'number') setVal('vtN_' + f.name, f.default || 0);
       });
       setVal('vtN_dia', dia);
+      setVal('vtN_estado', 'En curso');
+      setVal('vtN_ventaLograda', 'Pendiente');
+      ligarSemana('vtN_dia', 'vtN_semana');
       if (window.RainbowClientes && $('vtN_cliente')) RainbowClientes.adjuntar($('vtN_cliente'));
       $('vtNuevoCancelar').onclick = cerrarModal;
       $('vtNuevoGuardar').onclick = function () { guardarNuevoRegistro(dia); };
@@ -780,6 +846,10 @@
       if (f.required && !v) faltan.push(f.label);
     });
     if (faltan.length) { error('vtNuevoErr', 'Completa los campos: ' + faltan.join(', ')); return; }
+    // Valores de control, nunca editables por el usuario al crear.
+    values.estado = 'En curso';
+    values.ventaLograda = 'Pendiente';
+    values.semana = etiquetaSemana(values.dia || '');
     var sel = $('vtNuevoOwner');
     values.ownerId = (sel && sel.value) ? sel.value : me().id;
     error('vtNuevoErr', 'Guardando...', true);

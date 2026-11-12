@@ -116,6 +116,16 @@
   .cal-mark.no{color:#B91C1C}
   .cal-leyenda-reps{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;font-size:12px;color:var(--muted)}
   .cal-leyenda-reps i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:middle}
+  /* Detalle de Ventas: resultado de la actividad (sin Editar / Eliminar) */
+  .vt-res{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+  .vt-res h3{margin:0 0 8px;font-size:14px}
+  .vt-res-btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .vt-res-btns button{font-size:13px;padding:8px 12px}
+  .vt-res-ok{background:#16A34A!important;color:#fff!important}
+  .vt-res-no{background:#DC2626!important;color:#fff!important}
+  .vt-res-activo{outline:3px solid #1D4ED8;outline-offset:2px}
+  .vt-res-aviso{font-size:12px;color:var(--muted);margin-bottom:10px}
+  .vt-res-err{font-size:13px;min-height:18px;margin-top:8px;color:var(--bad)}
 </style>
 </head>
 <body>
@@ -203,10 +213,12 @@
         <button class="ghost small" id="closeDetail">Cerrar</button>
       </div>
       <div id="detailContent"></div>
-      <div style="display:flex;gap:8px;margin-top:14px">
+      <div id="detailActions" style="display:flex;gap:8px;margin-top:14px">
         <button id="editBtn" style="flex:1">Editar</button>
         <button class="ghost" id="deleteBtn" style="flex:1;background:var(--bad);color:#fff">Eliminar</button>
       </div>
+      <!-- Solo Ventas: marcar resultado y venta lograda (reemplaza Editar/Eliminar) -->
+      <div id="vtResultPanel" class="hide"></div>
     </div>
   </div>
 
@@ -241,6 +253,9 @@
   }
   function $(id){return document.getElementById(id);}
   function esc(s){return s==null?'':String(s);}
+  // Escape HTML completo para el panel de resultado (esc() solo convierte a String).
+  function escH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
   // Login
   $('lbtn').onclick=doLogin;
@@ -732,6 +747,99 @@
     renderCal();
   }
 
+  // PUT de Ventas: se envia el registro COMPLETO para no perder ningun campo
+  // (cleanRowInput reemplaza la fila con lo que llega, no hace patch parcial).
+  function payloadVentas(row, cambios){
+    var p={};
+    (moduleSchema.schema.fields||[]).forEach(function(f){
+      var v=row[f.name];
+      if(v===undefined||v===null) v=(f.default!==undefined?f.default:(f.type==='number'?0:''));
+      p[f.name]=v;
+    });
+    Object.keys(cambios||{}).forEach(function(k){ p[k]=cambios[k]; });
+    return p;
+  }
+
+  // Detalle de una actividad de Ventas: en lugar de Editar/Eliminar se marca
+  // Realizado / No realizado, se indica si la venta programada se concreto,
+  // el motivo cuando no se logro y el monto REAL (editable).
+  function renderResultadoVentas(row){
+    var panel=$('vtResultPanel');
+    var perm=(moduleSchema.schema&&moduleSchema.schema.permissions)||{};
+    var er=perm.edit||[];
+    var puede=(er.indexOf(me.role)>=0)||(er.indexOf('owner')>=0&&row.ownerId===me.id);
+    if(!puede){
+      panel.innerHTML='<div class="vt-res"><div class="muted">No tienes permiso para modificar el resultado de esta actividad.</div></div>';
+      return;
+    }
+    var plan=Number(row.ventaConcretar)||0;
+    var estadoInicial=(row.estado==='Planificado')?'En curso':(row.estado||'En curso');
+    var estadoSel=estadoInicial;
+    var lograda=row.ventaLograda||'Pendiente';
+    panel.innerHTML='<div class="vt-res">'+
+      '<h3>Resultado de la actividad</h3>'+
+      '<div class="vt-res-aviso">Estado actual: <b id="vtResEstado">'+escH(estadoInicial)+'</b>'+
+        ' · Venta programada: <b>US$ '+plan.toLocaleString('en-US',{minimumFractionDigits:2})+'</b></div>'+
+      '<div class="vt-res-btns">'+
+        '<button type="button" class="vt-res-ok" id="vtResOk">✓ Realizado</button>'+
+        '<button type="button" class="vt-res-no" id="vtResNo">✗ No realizado</button>'+
+        '<button type="button" class="ghost small" id="vtResCurso">↺ Volver a En curso</button>'+
+      '</div>'+
+      '<div class="grid">'+
+        '<div><label>¿Se logró concretar la venta programada?</label>'+
+          '<select id="vtResVenta"><option value="Pendiente">Pendiente</option>'+
+          '<option value="Sí">Sí</option><option value="No">No</option></select></div>'+
+        '<div><label>Venta realizada (US$) — editable</label>'+
+          '<input type="number" id="vtResMonto" min="0" step="0.01" value="'+escH(Number(row.ventaRealizada)||0)+'"></div>'+
+        '<div style="grid-column:1/-1"><label>Motivo por el que no se concretó</label>'+
+          '<textarea id="vtResMotivo" rows="2" placeholder="Obligatorio si la venta no se logró o la actividad no se realizó"></textarea></div>'+
+      '</div>'+
+      '<div id="vtResErr" class="vt-res-err"></div>'+
+      '<button type="button" id="vtResGuardar" style="width:100%;margin-top:6px">Guardar resultado</button>'+
+      '</div>';
+    $('vtResVenta').value=lograda;
+    $('vtResMotivo').value=row.resultado||'';
+
+    function marcarBoton(){
+      ['vtResOk','vtResNo','vtResCurso'].forEach(function(id){ $(id).classList.remove('vt-res-activo'); });
+      var id=estadoSel==='Realizado'?'vtResOk':(estadoSel==='No realizado'?'vtResNo':'vtResCurso');
+      $(id).classList.add('vt-res-activo');
+      $('vtResEstado').textContent=estadoSel;
+    }
+    function sugerirMonto(){
+      var m=Number($('vtResMonto').value)||0;
+      if(!m&&plan>0&&$('vtResVenta').value==='Sí') $('vtResMonto').value=plan;
+    }
+    marcarBoton();
+    $('vtResOk').onclick=function(){
+      estadoSel='Realizado'; marcarBoton();
+      if($('vtResVenta').value==='Pendiente'&&plan>0) $('vtResVenta').value='Sí';
+      sugerirMonto();
+    };
+    $('vtResNo').onclick=function(){ estadoSel='No realizado'; $('vtResVenta').value='No'; marcarBoton(); };
+    $('vtResCurso').onclick=function(){ estadoSel='En curso'; marcarBoton(); };
+    $('vtResVenta').onchange=sugerirMonto;
+
+    $('vtResGuardar').onclick=function(){
+      var venta=$('vtResVenta').value;
+      var monto=Number($('vtResMonto').value)||0;
+      var motivo=$('vtResMotivo').value.trim();
+      var err='';
+      if(plan>0&&estadoSel!=='En curso'&&venta==='Pendiente') err='Indica si se logró concretar la venta programada.';
+      if(!err&&(venta==='No'||estadoSel==='No realizado')&&!motivo) err='Indica el motivo por el que no se concretó.';
+      if(err){ $('vtResErr').textContent=err; return; }
+      $('vtResErr').textContent='Guardando...';
+      var cambios={ estado:estadoSel, ventaLograda:venta, ventaRealizada:monto, resultado:motivo };
+      api('PUT','/api/modules/'+currentModule+'/rows/'+row.id, payloadVentas(row,cambios)).then(function(res){
+        if(!res.ok){ $('vtResErr').textContent=(res.data&&res.data.error)||'No se pudo guardar'; return; }
+        $('detailModal').classList.add('hide');
+        editingId=null;
+        loadRows();
+        toast('Resultado guardado: '+estadoSel);
+      });
+    };
+  }
+
   function openDetail(rowId){
     var row=rows.find(function(r){ return r.id===rowId; });
     if(!row) return;
@@ -765,6 +873,8 @@
       }
       drawID(row);
 
+      $('detailActions').style.display='flex';
+      $('vtResultPanel').classList.add('hide');
       $('editBtn').style.display=canEdit?'':'none';
       $('deleteBtn').style.display=(me.role==='admin'||me.role==='supervisor')?'':'none';
 
@@ -775,6 +885,9 @@
 
     // Vista generica para otros modulos
     moduleSchema.schema.fields.forEach(function(field){
+      // Los campos de control de Ventas (estado / ventaLograda) se muestran y
+      // editan en el panel de resultado: no repetirlos como texto de solo lectura.
+      if(field.hiddenInForm) return;
       var div=document.createElement('div');
       div.style.marginBottom='10px';
       var label=document.createElement('div');
@@ -812,7 +925,20 @@
       content.appendChild(div);
     });
 
-    // Mostrar permisos de edicion
+    // Ventas YA NO muestra Editar/Eliminar: el detalle es para registrar
+    // el resultado de la actividad y la venta realmente lograda.
+    if(currentModule==='ventas'){
+      $('detailActions').style.display='none';
+      $('vtResultPanel').classList.remove('hide');
+      renderResultadoVentas(row);
+      $('detailModal').classList.remove('hide');
+      editingId=null;   // evita que un guardado posterior haga PUT sobre esta fila
+      return;
+    }
+
+    // Mostrar permisos de edicion (Marketing u otros modulos)
+    $('detailActions').style.display='flex';
+    $('vtResultPanel').classList.add('hide');
     var canEdit=(me.role==='admin'||me.role==='supervisor'||me.role==='coordinador');
     $('editBtn').style.display=canEdit?'':'none';
     var canDelete=(me.role==='admin'||me.role==='supervisor');
@@ -848,6 +974,12 @@
     // Un jefe de equipo puede agendar a nombre de un representante.
     var selOwner=$('vtOwner');
     values.ownerId=(currentModule==='ventas' && selOwner && selOwner.value)?selOwner.value:me.id;
+    if(currentModule==='ventas'){
+      // "estado" y "ventaLograda" estan ocultos: todo registro nuevo nace
+      // En curso / Pendiente. El servidor recalcula "semana" desde "dia".
+      if(!editingId){ values.estado='En curso'; values.ventaLograda='Pendiente'; }
+      if(!values.estado||values.estado==='Planificado') values.estado='En curso';
+    }
 
     var url='/api/modules/'+currentModule+'/rows';
     var method='POST';

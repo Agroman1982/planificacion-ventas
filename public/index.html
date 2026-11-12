@@ -309,9 +309,10 @@
           <label>Venta a concretar (US$)</label>
           <input id="iConcretar" type="number" step="0.01" min="0" placeholder="0.00">
         </div>
-        <div>
+        <div class="hide">
           <label>Estado</label>
           <select id="iEstado"></select>
+          <input type="hidden" id="iVentaLograda" value="Pendiente">
         </div>
         <div>
           <label>Venta realizada (US$)</label>
@@ -961,7 +962,7 @@
     // Calendario es la vista por defecto al ingresar
     showCal();
     // estado selects
-    fillSelect($('iEstado'), estados, 'Planificado');
+    fillSelect($('iEstado'), estados, 'En curso');
     fillSelect($('fEstado'), estados, '');
     if(me.role==='admin') $('usersBtn').classList.remove('hide');
     // El listado maestro lo mantienen admin y supervisores (todos lo consultan).
@@ -1501,7 +1502,7 @@
       cliente:$('iCliente').value.trim(), producto:$('iProducto').value.trim(), trabajo:$('iTrabajo').value.trim(),
       ventaConcretar:$('iConcretar').value, estado:$('iEstado').value,
       ventaRealizada:$('iRealizada').value, observaciones:$('iObs').value.trim(),
-      resultado:$('iResultado').value.trim()
+      resultado:$('iResultado').value.trim(), ventaLograda:$('iVentaLograda').value||'Pendiente'
     };
     if(jefeDeEquipo()) body.ownerId=$('iRep').value;
     var p = editingId ? api('PUT', apiUrl('/rows/'+editingId), body) : api('POST', apiUrl('/rows'), body);
@@ -1526,7 +1527,8 @@
     $('cancelEdit').classList.remove('hide');
     $('iSemana').value=r.semana||''; $('iDia').value=r.dia||''; $('iUbicacion').value=r.ubicacion||'';
     $('iCliente').value=r.cliente||''; $('iProducto').value=r.producto||''; $('iTrabajo').value=r.trabajo||'';
-    $('iConcretar').value=r.ventaConcretar||''; $('iEstado').value=r.estado||'Planificado';
+    $('iConcretar').value=r.ventaConcretar||''; $('iEstado').value=(r.estado&&r.estado!=='Planificado')?r.estado:'En curso';
+    $('iVentaLograda').value=r.ventaLograda||'Pendiente';
     $('iRealizada').value=r.ventaRealizada||''; $('iObs').value=r.observaciones||'';
     $('iResultado').value=r.resultado||'';
     if(jefeDeEquipo()){ llenarSelectRep(r.ownerId); }
@@ -1536,7 +1538,7 @@
   function resetForm(){
     editingId=null; $('formTitle').textContent='Nueva actividad'; $('cancelEdit').classList.add('hide');
     ['iSemana','iDia','iUbicacion','iCliente','iProducto','iTrabajo','iConcretar','iRealizada','iObs','iResultado'].forEach(function(id){$(id).value='';});
-    $('iEstado').value='Planificado';
+    $('iEstado').value='En curso'; $('iVentaLograda').value='Pendiente';
     if(jefeDeEquipo()) llenarSelectRep(adminOwner);
     actualizarHints();
   }
@@ -1863,7 +1865,7 @@
       html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
       html+='<button class="ok small" id="dOk">✓ Realizado</button>';
       html+='<button class="danger small" id="dNo">✗ No realizado</button>';
-      if(r.estado!=='Planificado') html+='<button class="ghost small" id="dPlan">↺ Volver a planificado</button>';
+      if(r.estado!=='En curso' && r.estado!=='Planificado') html+='<button class="ghost small" id="dPlan">↺ Volver a En curso</button>';
       html+='</div></div>';
       html+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">';
       html+='<button class="ghost small" id="dEdit">Editar</button>';
@@ -1877,7 +1879,7 @@
     if(canEdit){
       $('dOk').onclick=function(){ abrirMarcar(r,'Realizado'); };
       $('dNo').onclick=function(){ abrirMarcar(r,'No realizado'); };
-      if($('dPlan')) $('dPlan').onclick=function(){ marcarEstado(r,'Planificado'); };
+      if($('dPlan')) $('dPlan').onclick=function(){ marcarEstado(r,'En curso'); };
       $('dEdit').onclick=function(){ closeDetail(); showList(); openForm(r); };
       $('dDel').onclick=function(){ closeDetail(); delRow(r.id); };
     }
@@ -1915,7 +1917,7 @@
       semana:r.semana||'', dia:r.dia||'', ubicacion:r.ubicacion||'', cliente:r.cliente||'',
       producto:r.producto||'', trabajo:r.trabajo||'', ventaConcretar:r.ventaConcretar||0,
       estado:marcarEstadoNuevo, ventaRealizada:ventaRealizada, observaciones:r.observaciones||'',
-      resultado:$('marcarTexto').value.trim()
+      resultado:$('marcarTexto').value.trim(), ventaLograda:r.ventaLograda||'Pendiente'
     };
     api('PUT', apiUrl('/rows/'+r.id), body).then(function(res){
       if(res.ok){ closeMarcar(); closeDetail(); loadRows(); }
@@ -1929,7 +1931,7 @@
       semana:r.semana||'', dia:r.dia||'', ubicacion:r.ubicacion||'', cliente:r.cliente||'',
       producto:r.producto||'', trabajo:r.trabajo||'', ventaConcretar:r.ventaConcretar||0,
       estado:estado, ventaRealizada:r.ventaRealizada||0, observaciones:r.observaciones||'',
-      resultado:r.resultado||''
+      resultado:r.resultado||'', ventaLograda:r.ventaLograda||'Pendiente'
     };
     api('PUT', apiUrl('/rows/'+r.id), body).then(function(res){
       if(res.ok){ closeDetail(); loadRows(); }
@@ -2171,7 +2173,7 @@
     $('iTrabajo').value = t.trabajo || '';
     $('iConcretar').value = t.ventaConcretar || '';
     $('iObs').value = t.observaciones || '';
-    $('iEstado').value = 'Planificado';
+    $('iEstado').value = 'En curso';
     // Si es jefe de equipo, agendar a nombre del destinatario del ToDo (no a nombre propio)
     if(jefeDeEquipo() && t.assigneeId){
       llenarSelectRep(t.assigneeId);
@@ -2252,7 +2254,7 @@
       cliente:$('iCliente').value.trim(), producto:$('iProducto').value.trim(), trabajo:$('iTrabajo').value.trim(),
       ventaConcretar:$('iConcretar').value, estado:$('iEstado').value,
       ventaRealizada:$('iRealizada').value, observaciones:$('iObs').value.trim(),
-      resultado:$('iResultado').value.trim()
+      resultado:$('iResultado').value.trim(), ventaLograda:$('iVentaLograda').value||'Pendiente'
     };
     if(jefeDeEquipo()) body.ownerId=$('iRep').value;
     var p = editingId ? api('PUT', apiUrl('/rows/'+editingId), body) : api('POST', apiUrl('/rows'), body);

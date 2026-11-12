@@ -24,6 +24,26 @@
       fields.forEach(field => {
         const wrapper = document.createElement('div');
         if (field.type === 'textarea' || field.type === 'evaluations' || field.type === 'activities') wrapper.style.gridColumn = '1/-1';
+
+        // Campos de control (estado inicial, venta lograda) que NO deben
+        // aparecer en el formulario pero SI deben enviarse con su valor
+        // predeterminado. Se conserva el id "field_<name>" para getFormValues().
+        if (field.hiddenInForm) {
+          const hidden = document.createElement('input');
+          hidden.type = 'hidden';
+          hidden.id = 'field_' + field.name;
+          hidden.name = field.name;
+          let hv = (values && values[field.name] !== undefined) ? values[field.name] : field.default;
+          // "Planificado" ya no existe: un registro antiguo se edita como "En curso".
+          if (hv === 'Planificado' || hv === undefined || hv === null) {
+            hv = field.default !== undefined ? field.default : (field.options && field.options[0]) || '';
+          }
+          hidden.value = hv;
+          wrapper.style.display = 'none';
+          wrapper.appendChild(hidden);
+          grid.appendChild(wrapper);
+          return;
+        }
         
         const label = document.createElement('label');
         label.textContent = field.label + (field.required ? ' *' : '');
@@ -97,9 +117,12 @@
         if (values && values[field.name] !== undefined) input.value = values[field.name];
         else if (field.type === 'select' && field.default !== undefined) input.value = field.default;
         if (field.placeholder) input.placeholder = field.placeholder;
-        if (field.autoFill && !isAdmin) {
+        // La semana es automatica e inmutable para TODOS los roles (antes
+        // los administradores podian editarla). El servidor la recalcula
+        // igualmente desde la fecha al guardar.
+        if (field.autoFill) {
           input.readOnly = true;
-          input.title = 'Se calcula automaticamente';
+          input.title = 'Se calcula automaticamente a partir de la fecha';
         }
         
         wrapper.appendChild(input);

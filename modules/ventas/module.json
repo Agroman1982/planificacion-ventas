@@ -57,8 +57,9 @@
         "label": "Estado",
         "type": "select",
         "required": true,
-        "options": ["Planificado", "En curso", "Realizado", "No realizado"],
-        "default": "Planificado",
+        "options": ["En curso", "Realizado", "No realizado"],
+        "default": "En curso",
+        "hiddenInForm": true,
         "width": 120,
         "order": 7
       },
@@ -95,18 +96,27 @@
         "default": 0,
         "width": 150,
         "order": 11
+      },
+      {
+        "name": "ventaLograda",
+        "label": "¿Se concretó la venta programada?",
+        "type": "select",
+        "required": false,
+        "options": ["Pendiente", "Sí", "No"],
+        "default": "Pendiente",
+        "hiddenInForm": true,
+        "width": 180,
+        "order": 12
       }
     ],
     "states": {
-      "values": ["Planificado", "En curso", "Realizado", "No realizado"],
+      "values": ["En curso", "Realizado", "No realizado"],
       "colors": {
-        "Planificado": "#9e9e9e",
         "En curso": "#ff9800",
         "Realizado": "#4caf50",
         "No realizado": "#f44336"
       },
       "icons": {
-        "Planificado": "",
         "En curso": "",
         "Realizado": "✓",
         "No realizado": "✗"

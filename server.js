@@ -20,7 +20,10 @@ const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
 // Se inyecta en el HTML como "?v=__BUILD__" para romper la cache del navegador.
 const BUILD_ID = Date.now().toString(36);
 
-const ESTADOS = ['Planificado', 'En curso', 'Realizado', 'No realizado'];
+// Estados de PLANIFICACION DE VENTAS. "Planificado" se elimino: todo registro
+// nuevo nace en "En curso" y el resultado se marca desde el detalle.
+// (Marketing maneja su propio catalogo de estados en su module.json.)
+const ESTADOS = ['En curso', 'Realizado', 'No realizado'];
 const ROLES = ['admin', 'supervisor', 'coordinador', 'retail', 'kam', 'promotor'];
 const ROLES_LABEL = { admin: 'Administrador', supervisor: 'Supervisor', coordinador: 'Coordinador', retail: 'Vendedor Retail', kam: 'KAM (Agroindustria)', promotor: 'Promotor' };
 const ROLES_CON_SUPERVISOR = ['coordinador', 'retail', 'kam', 'promotor'];
@@ -697,10 +700,15 @@ function cleanRowInput(body, schema, ownerId, isAdmin) {
     }
   }
 
-  // Autofill semana desde fecha si aplica
+  // SEMANA: campo 100% automatico y NO editable, para TODOS los roles
+  // (incluido admin). La fecha es la unica fuente de verdad: lo que envie el
+  // cliente en "semana" se ignora. Solo si no hay fecha valida se conserva el
+  // valor recibido, para no borrar la semana de registros antiguos sin fecha.
   const semanaField = fields.find(f => f.autoFill === 'weekLabelFromDate');
-  if (semanaField && !isAdmin) {
-    out[semanaField.name] = etiquetaSemanaDesdeFecha(out.dia || body.dia);
+  if (semanaField) {
+    const calculada = etiquetaSemanaDesdeFecha(out.dia || '');
+    out[semanaField.name] = calculada || (typeof body[semanaField.name] === 'string'
+      ? body[semanaField.name].trim().slice(0, 500) : '');
   }
 
   // I+D: el estado y los campos de compatibilidad se derivan de las ACTIVIDADES.
@@ -895,6 +903,14 @@ const server = http.createServer(async (req, res) => {
         // Visibilidad estandar (jerarquia transitoria)
         const visibles = idsVisiblesPara(me);
         if (visibles !== null) rows = rows.filter(r => visibles.indexOf(r.ownerId) >= 0);
+      }
+
+      // Compatibilidad sin migracion: los registros de Ventas guardados antes
+      // de eliminar el estado "Planificado" se muestran como "En curso".
+      // Se normaliza SOLO en la respuesta; el disco no se reescribe.
+      if (moduleId === 'ventas') {
+        rows = rows.map(r => r.estado === 'Planificado'
+          ? Object.assign({}, r, { estado: 'En curso' }) : r);
       }
 
       // Filtros
