@@ -15,8 +15,20 @@ const https = require('https');
 const http = require('http');
 
 const DEFAULT_BASE = 'https://planificacion-ventas-rainbow.onrender.com';
-const DEFAULT_USER = 'hector';
-const DEFAULT_PASS = 'rainbow2026';
+
+// NO se guardan credenciales en este archivo: el repositorio de GitHub es
+// publico. Las credenciales se toman de las variables de entorno
+// RAINBOW_USER / RAINBOW_PASS, o se piden por consola si faltan.
+function pedirCredenciales() {
+  const user = process.env.RAINBOW_USER;
+  const pass = process.env.RAINBOW_PASS;
+  if (user && pass) return { user, pass };
+  console.log('\nDefine las credenciales antes de continuar:');
+  console.log('  set RAINBOW_USER=...');
+  console.log('  set RAINBOW_PASS=...');
+  console.log('\n(O en PowerShell: $env:RAINBOW_USER="..." ; $env:RAINBOW_PASS="...")');
+  process.exit(1);
+}
 
 function pedir(opciones, body) {
   return new Promise((resolve, reject) => {
@@ -68,8 +80,7 @@ function marcaTiempo() {
 async function main() {
   const cmd = process.argv[2];
   const base = (process.env.RAINBOW_URL || DEFAULT_BASE).replace(/\/$/, '');
-  const user = process.env.RAINBOW_USER || DEFAULT_USER;
-  const pass = process.env.RAINBOW_PASS || DEFAULT_PASS;
+  const { user, pass } = pedirCredenciales();
 
   if (!cmd || cmd === 'ayuda' || cmd === '--help') {
     console.log([

@@ -338,16 +338,24 @@ function seed() {
     const hash = crypto.scryptSync(password, salt, 64).toString('hex');
     return { id: uid('u'), name, username, role, supervisorId: null, supervisorIds: [], salt, hash, createdAt: Date.now() };
   };
-  globalDb.users.push(mk('Hector Espinoza', 'hector', 'admin', 'rainbow2026'));
-  globalDb.users.push(mk('Marco Herrera', 'marco', 'retail', 'ventas2026'));
-  globalDb.users.push(mk('Antony Aguirre', 'antony', 'retail', 'ventas2026'));
-  globalDb.users.push(mk('Joan Dorador', 'joan', 'retail', 'ventas2026'));
-  globalDb.users.push(mk('Alfredo Omonte', 'alfredo', 'retail', 'ventas2026'));
+  // Las contrasenas iniciales se pueden definir por variable de entorno para
+  // no dejar las de fabrica en el repositorio (que es publico). Si no se
+  // definen, se usan las de fabrica y se avisa por consola.
+  const passAdmin = process.env.SEED_ADMIN_PASSWORD || 'rainbow2026';
+  const passVendedor = process.env.SEED_VENDEDOR_PASSWORD || 'ventas2026';
+  globalDb.users.push(mk('Hector Espinoza', 'hector', 'admin', passAdmin));
+  globalDb.users.push(mk('Marco Herrera', 'marco', 'retail', passVendedor));
+  globalDb.users.push(mk('Antony Aguirre', 'antony', 'retail', passVendedor));
+  globalDb.users.push(mk('Joan Dorador', 'joan', 'retail', passVendedor));
+  globalDb.users.push(mk('Alfredo Omonte', 'alfredo', 'retail', passVendedor));
   saveGlobalData();
   console.log('\n=== Credenciales iniciales (cámbialas desde el panel de administrador) ===');
-  console.log('Administrador : hector  /  rainbow2026');
-  console.log('Vendedores    : marco, antony, joan, alfredo  /  ventas2026');
+  console.log('Administrador : hector  /  ' + (process.env.SEED_ADMIN_PASSWORD ? '(SEED_ADMIN_PASSWORD)' : 'rainbow2026 (de fabrica)'));
+  console.log('Vendedores    : marco, antony, joan, alfredo  /  ' + (process.env.SEED_VENDEDOR_PASSWORD ? '(SEED_VENDEDOR_PASSWORD)' : 'ventas2026 (de fabrica)'));
   console.log('=====================================================================\n');
+  if (!process.env.SEED_ADMIN_PASSWORD) {
+    console.warn('[aviso] Se usaron credenciales de fabrica. Define SEED_ADMIN_PASSWORD en Render para protegerlas.');
+  }
 }
 
 function migrate() {
