@@ -68,6 +68,40 @@
   @keyframes cronoApertura{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
   .cronograma ::-webkit-scrollbar{height:8px}
   .cronograma ::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:4px}
+  /* Herramientas del modulo Ventas (integradas en la app unificada) */
+  .vt-toolbar{padding:12px 14px}
+  .vt-botones{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .vt-etiqueta{font-size:12px;font-weight:600;margin-right:2px}
+  .vt-filtros{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .vt-botones button.vt-activo{background:var(--brand);color:#fff}
+  #vtModal{max-width:760px}
+  .vt-modal-hd{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+  .vt-err{font-size:13px;min-height:18px;margin-top:8px;color:var(--bad)}
+  .vt-check{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin:6px 0 12px}
+  .vt-check input{width:auto}
+  .vt-panel{background:#F1F7F4;border:1px solid var(--line);border-radius:12px;padding:12px}
+  .vt-meta-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:560px){.vt-meta-grid{grid-template-columns:1fr 1fr}}
+  .vt-meta-grid div{display:flex;flex-direction:column;gap:2px}
+  .vt-meta-grid span{font-size:11px;color:var(--muted);font-weight:600}
+  .vt-meta-grid b{font-size:15px}
+  .vt-tbl{border-collapse:collapse;width:100%;font-size:13px}
+  .vt-tbl th,.vt-tbl td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:middle}
+  .vt-tbl th{background:#F1F5F9;font-size:12px;color:var(--muted)}
+  .vt-tbl .r,.vt-tbl td.r{text-align:right}
+  .vt-tbl tr.vt-total td{font-weight:700;background:#F1F5F9}
+  .vt-tbl input{width:110px;padding:5px 8px;font-size:13px}
+  .vt-tbl button{margin:1px 0}
+  .vt-todo{display:flex;gap:10px;justify-content:space-between;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;flex-wrap:wrap}
+  .vt-todo-info{font-size:13px;flex:1;min-width:180px}
+  .vt-todo-info b{font-size:14px}
+  .vt-todo-info div{color:var(--muted)}
+  .vt-todo-acc{display:flex;gap:6px}
+  .vt-scroll{max-height:230px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:6px}
+  .vt-cat-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 6px;border-bottom:1px solid var(--line);font-size:13px}
+  .vt-cat-row:last-child{border-bottom:none}
+  .vt-nav{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  .cal-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
 </style>
 </head>
 <body>
@@ -115,11 +149,15 @@
         <div style="font-weight:700;font-size:18px" id="moduleTitle">&mdash;</div>
         <div style="font-size:13px;color:var(--muted)" id="moduleSubtitle"></div>
       </div>
-      <div style="display:flex;gap:8px">
-        <button class="ghost small" id="backBtn">&larr; Volver</button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="moduleSwitch" style="width:auto;min-width:190px;font-size:13px;padding:6px 8px" aria-label="Modulo activo"></select>
+        <button class="ghost small" id="backBtn">Modulos</button>
         <button class="ghost small" id="logoutBtn2">Salir</button>
       </div>
     </div>
+
+    <!-- Herramientas exclusivas de Planificacion de Ventas -->
+    <div id="vtToolbar"></div>
 
     <!-- Tabs de vistas -->
     <div id="viewTabs" class="tabs"></div>
@@ -156,6 +194,7 @@
 <script src="js/clientes-autocomplete.js?v=__BUILD__"></script>
 <script src="js/renderer.js?v=__BUILD__"></script>
 <script src="js/xlsx.js?v=__BUILD__"></script>
+<script src="js/ventas-tools.js?v=__BUILD__"></script>
 <script>
 (function(){
   var me=null, currentModule='ventas', moduleSchema=null, rows=[], ownerNames={}, moduleUsers=[], editingId=null;
@@ -194,14 +233,27 @@
   function start(user){
     me=user;
     $('login').classList.add('hide');
-    $('moduleSelector').classList.remove('hide');
     $('whoName').textContent=me.name;
     $('whoRole').textContent=me.role==='admin'?'Administrador':(me.role==='supervisor'?'Supervisor':(me.role==='coordinador'?'Coordinador':me.role));
     if(window.RainbowClientes) RainbowClientes.cargar(); // listado maestro de clientes
-    loadModules();
+
+    // Puente entre la app modular y las herramientas de Ventas.
+    window.__RB={
+      api:api, $:$, esc:esc, toast:toast,
+      me:function(){ return me; }, rows:function(){ return rows; },
+      ownerNames:function(){ return ownerNames; }, module:function(){ return currentModule; },
+      schema:function(){ return moduleSchema; }, render:function(){ renderCurrentView(); },
+      renderForm:function(){ renderForm(); }, loadRows:function(){ loadRows(); },
+      openDetail:function(id){ openDetail(id); }
+    };
+    if(window.VentasTools) VentasTools.init(window.__RB);
+
+    // El enlace de siempre entra DIRECTAMENTE a Ventas; el selector de la
+    // cabecera permite cambiar a I+D o Marketing sin salir de la app.
+    loadModules(true);
   }
 
-  function loadModules(){
+  function loadModules(abrirPorDefecto){
     api('GET','/api/modules').then(function(res){
       if(!res.ok) return;
       var modules=res.data.modules||[];
@@ -214,6 +266,18 @@
         card.onclick=function(){ openModule(mod.id); };
         grid.appendChild(card);
       });
+      var sel=$('moduleSwitch');
+      if(sel){
+        sel.innerHTML='';
+        modules.forEach(function(mod){
+          var o=document.createElement('option');
+          o.value=mod.id;
+          o.textContent=(mod.icon?mod.icon+' ':'')+mod.name;
+          sel.appendChild(o);
+        });
+        sel.value='ventas';
+      }
+      if(abrirPorDefecto && modules.some(function(m){ return m.id==='ventas'; })) openModule('ventas');
     });
   }
 
@@ -221,6 +285,8 @@
     currentModule=moduleId;
     $('moduleSelector').classList.add('hide');
     $('moduleView').classList.remove('hide');
+    if($('moduleSwitch')) $('moduleSwitch').value=moduleId;
+    if(window.VentasTools) VentasTools.onModuleChange(moduleId);
 
     api('GET','/api/modules/'+moduleId+'/schema').then(function(res){
       if(res.ok){
@@ -270,6 +336,7 @@
 
   function renderForm(){
     ModuleRenderer.renderForm('dynamicForm', moduleSchema, {}, me.role==='admin');
+    if(window.VentasTools) VentasTools.decorarFormulario();
   }
 
   function loadRows(){
@@ -286,6 +353,9 @@
   }
 
   function renderCurrentView(){
+    // Las herramientas de Ventas pueden pedir un redibujado antes de que el
+    // schema del modulo haya llegado; en ese caso no hay nada que pintar aun.
+    if(!moduleSchema) return;
     var container=$('viewContainer');
     container.innerHTML='';
 
@@ -383,6 +453,14 @@
   function renderVistaUnica(){
     var container=$('viewContainer');
     var formCard=$('formCard');
+
+    // Vistas bajo demanda (Calendario / Resumen): se muestran en lugar del
+    // formulario y la lista, sin cambiar el diseno de vista unica por defecto.
+    if(window.VentasTools && VentasTools.vistaActual()){
+      formCard.style.display='none';
+      VentasTools.renderVista(container);
+      return;
+    }
     formCard.style.display='';
 
     var card=document.createElement('div');
@@ -415,8 +493,9 @@
 
     container.appendChild(card);
 
-    $('emptyMsg').classList.toggle('hide', rows.length>0);
-    rows.forEach(function(row){
+    var visibles = window.VentasTools ? VentasTools.filtrar(rows) : rows;
+    $('emptyMsg').classList.toggle('hide', visibles.length>0);
+    visibles.forEach(function(row){
       var c=ModuleRenderer.renderCard(row, moduleSchema, ownerNames, me);
       c.onclick=function(){ openDetail(row.id); };
       list.appendChild(c);
@@ -724,6 +803,10 @@
     moduleSchema=null;
   };
 
+  $('moduleSwitch').onchange=function(){
+    openModule($('moduleSwitch').value);
+  };
+
   $('closeDetail').onclick=function(){
     $('detailModal').classList.add('hide');
     editingId=null;
@@ -731,7 +814,9 @@
 
   $('saveBtn').onclick=function(){
     var values=ModuleRenderer.getFormValues(moduleSchema);
-    values.ownerId=me.id;
+    // Un jefe de equipo puede agendar a nombre de un representante.
+    var selOwner=$('vtOwner');
+    values.ownerId=(currentModule==='ventas' && selOwner && selOwner.value)?selOwner.value:me.id;
 
     var url='/api/modules/'+currentModule+'/rows';
     var method='POST';
@@ -746,6 +831,7 @@
         var eraNuevo=!!(row&&row.clientePotencial);
         loadRows();
         renderForm();
+        if(window.VentasTools) VentasTools.afterSave();
         editingId=null;
         $('formTitle').textContent='Nuevo registro';
         // Confirmación: el nombre escrito no estaba en el listado maestro.
@@ -804,6 +890,7 @@
     $('formCard').style.display='';   // asegura que el formulario este visible
     $('formTitle').textContent='Editar registro';
     ModuleRenderer.renderForm('dynamicForm', moduleSchema, row, me.role==='admin');
+    if(window.VentasTools) VentasTools.alEditar(row);
     window.scrollTo(0,0);
   };
 

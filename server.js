@@ -719,8 +719,10 @@ const server = http.createServer(async (req, res) => {
     // Archivos estáticos
     if (method === 'GET') {
       let rel = decodeURIComponent(pathname);
-      if (rel === '/') rel = '/index.html';
-      if (rel === '/app') rel = '/app.html';
+      // App unificada: el enlace de siempre (/) y /app sirven la MISMA pantalla
+      // modular, sin redireccion y sin cambiar la URL. /index.html queda
+      // accesible como respaldo de la antigua interfaz de Ventas.
+      if (rel === '/' || rel === '/app') rel = '/app.html';
       const file = path.normalize(path.join(PUBLIC_DIR, rel));
       if (!file.startsWith(PUBLIC_DIR)) return sendJSON(res, 403, { error: 'Acceso denegado' });
       if (fs.existsSync(file) && fs.statSync(file).isFile()) {
