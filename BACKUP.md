@@ -86,6 +86,29 @@ archivo permite deshacer el cambio.
 
 ---
 
+## Guardar el backup cifrado (recomendado para la nube)
+
+Si quieres dejar el backup en Drive, OneDrive o Dropbox, **cifralo primero**.
+El archivo `.enc` se puede subir a cualquier nube: sin la contraseña no se puede
+leer.
+
+```bash
+# Cifrar (pide la contraseña por consola si no la pasas como argumento)
+node tools/cifrar-backup.js "C:/mis-backups/rainbow/rainbow-backup-20261112-0815.json" "C:/mis-backups/rainbow/rainbow-backup.enc"
+
+# Descifrar cuando lo necesites
+node tools/descifrar-backup.js "C:/mis-backups/rainbow/rainbow-backup.enc" "C:/mis-backups/rainbow/rainbow-backup.json"
+```
+
+Cifrado **AES-256-GCM** con la contraseña derivada por scrypt. El proceso es
+determinista y verificado: el archivo descifrado es idéntico byte a byte al
+original.
+
+> Guarda la contraseña **en un lugar separado** del archivo. Si pierdes la
+> contraseña, el backup no se puede recuperar.
+
+---
+
 ## Los endpoints (avanzado)
 
 Si prefieres hacerlo por HTTP, con la sesión iniciada:
