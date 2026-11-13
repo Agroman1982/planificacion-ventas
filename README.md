@@ -86,6 +86,16 @@ secundarios en verde suave. Aplica a Ventas, I+D, Marketing y a `/index.html`.
 `No realizado` = rojo (✗). En el calendario con el filtro «Todos» el color de la
 pastilla identifica al representante y la marca gris ● identifica «En curso».
 
+### Oportunidades de venta en el calendario
+Toda actividad con **Venta a concretar (US$) > 0** lleva un distintivo **$** ámbar al
+inicio de la pastilla, tanto con el filtro «Todos» como con un representante
+seleccionado. El `$` se coloca antes del nombre del cliente para que no quede
+oculto por el recorte de textos largos; al pasar el cursor se ve el monto
+programado. La leyenda del calendario explica el símbolo y resume cuántas
+oportunidades hay en el mes visible y por cuánto dinero, siempre sobre las
+filas que el usuario tiene permiso de ver (servidor mediante `idsVisiblesPara()`).
+El distintivo es informativo: no sustituye la marca ✓ / ✗ / ● del estado.
+
 ## Seguridad
 - Contraseñas hasheadas (scrypt) y sesión por cookie HttpOnly.
 - **Aislamiento a nivel de servidor**: la API filtra las filas por dueño; un vendedor

@@ -951,6 +951,17 @@
     var porDia = {}, repsVistos = {};
     var on = ownerNames();
 
+    // Oportunidades de venta del mes que se esta mostrando. Se calculan sobre
+    // las filas YA filtradas, de modo que el supervisor solo ve las de su
+    // equipo y el representante unicamente las suyas.
+    var mesClave = iso(new Date(st.calY, st.calM, 1)).slice(0, 7);
+    var oportunidades = lista.filter(function (r) {
+      return String(r.dia || '').slice(0, 7) === mesClave && (Number(r.ventaConcretar) || 0) > 0;
+    });
+    var totalOportunidades = oportunidades.reduce(function (a, r) {
+      return a + (Number(r.ventaConcretar) || 0);
+    }, 0);
+
     lista.forEach(function (r) {
       if (!r.dia) return;
       var clave = String(r.dia).slice(0, 10);
@@ -995,9 +1006,16 @@
         var marca = r.estado === 'Realizado' ? '<span class="cal-mark ok">✓</span>'
           : r.estado === 'No realizado' ? '<span class="cal-mark no">✗</span>'
           : '<span class="cal-mark pend">&#9679;</span>';
-        var tip = (porVendedor ? (on[r.ownerId] || '') + ' — ' : '') + (r.cliente || '') + ' · ' + (r.estado || 'En curso');
+        // La "Venta a concretar" es la oportunidad de venta programada. El $
+        // va al principio, junto a la marca de estado, para que no lo corte
+        // el ellipsis cuando el nombre del cliente es largo.
+        var programada = Number(r.ventaConcretar) || 0;
+        var dolar = programada > 0
+          ? '<span class="cal-mark money" title="Venta programada: ' + esc(money(programada)) + '">$</span>' : '';
+        var tip = (porVendedor ? (on[r.ownerId] || '') + ' — ' : '') + (r.cliente || '') + ' · ' + (r.estado || 'En curso') +
+          (programada > 0 ? ' · Venta programada: ' + money(programada) : '');
         html += '<span class="cal-chip" data-row="' + esc(r.id) + '" title="' + esc(tip) + '" style="background:' + color + ';color:' + tinta(color) + '">' +
-          marca + esc(r.cliente || r.trabajo || 'Actividad') + '</span>';
+          marca + dolar + esc(r.cliente || r.trabajo || 'Actividad') + '</span>';
       });
       if (delDia.length > 8) html += '<span class="muted">+' + (delDia.length - 8) + ' más</span>';
       html += '</div>';
@@ -1016,7 +1034,11 @@
     html += '</div><div class="cal-legend" style="font-size:11px">' +
       '<span><span class="cal-mark ok">✓</span> Realizado</span>' +
       '<span><span class="cal-mark no">✗</span> No realizado</span>' +
-      '<span><span class="cal-mark pend">&#9679;</span> En curso (gris claro)</span></div></div>';
+      '<span><span class="cal-mark pend">&#9679;</span> En curso (gris claro)</span>' +
+      '<span><span class="cal-mark money">$</span> Venta programada' +
+      (oportunidades.length ? ' &middot; <b class="cal-oportunidades">' + oportunidades.length + ' en ' +
+        esc(MESES[st.calM]) + ' por ' + esc(money(totalOportunidades)) + '</b>' : ' (US$)') +
+      '</span></div></div>';
     container.innerHTML = html;
 
     $('vtCalPrev').onclick = function () { moverCal(-1); };

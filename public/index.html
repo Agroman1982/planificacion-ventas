@@ -118,6 +118,8 @@
   .cal-mark.ok{color:#15803D}
   .cal-mark.no{color:#B91C1C}
   .cal-mark.pending{color:#B45309}
+  /* Oportunidad de venta programada (Venta a concretar > 0). */
+  .cal-mark.money{background:#FFE08A;border:1px solid #D89A22;border-radius:4px;color:#6B4200;font-size:10px}
   button.ok{background:var(--ok)}
   button.ok:hover{background:#158a4e}
   .pill{font-size:11px;padding:2px 7px;border-radius:999px;background:#E2E8F0;color:#334155;font-weight:700}
@@ -1817,8 +1819,12 @@
         var mark = r.estado==='Realizado' ? '<span class="cal-mark ok">✓</span>'
                  : r.estado==='No realizado' ? '<span class="cal-mark no">✗</span>'
                  : '';
-        var tip = (veVarios()?(ownerNames[r.ownerId]||'')+' — ':'') + esc(r.cliente||'') + ' · ' + esc(r.estado);
-        html+='<div class="cal-chip'+extra+'" data-rid="'+r.id+'" title="'+tip.replace(/"/g,'&quot;')+'" style="background:'+color+'">'+mark+label+'</div>';
+        // $ ambar = hay una venta programada (oportunidad de venta).
+        var programada = Number(r.ventaConcretar)||0;
+        var dolar = programada>0 ? '<span class="cal-mark money" title="Venta programada: '+money(programada)+'">$</span>' : '';
+        var tip = (veVarios()?(ownerNames[r.ownerId]||'')+' — ':'') + esc(r.cliente||'') + ' · ' + esc(r.estado)
+          + (programada>0 ? ' · Venta programada: '+money(programada) : '');
+        html+='<div class="cal-chip'+extra+'" data-rid="'+r.id+'" title="'+tip.replace(/"/g,'&quot;')+'" style="background:'+color+'">'+mark+dolar+label+'</div>';
       });
       html+='</div>';
     });
