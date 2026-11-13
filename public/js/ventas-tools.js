@@ -17,7 +17,8 @@
   var ROLES_EQUIPO = ['coordinador', 'retail', 'kam', 'promotor'];
   var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   var ESTADOS = ['En curso', 'Realizado', 'No realizado'];
-  var ESTADO_COLOR = { 'En curso': '#ff9800', 'Realizado': '#4caf50', 'No realizado': '#f44336' };
+  // "En curso" = gris claro (pendiente). El texto se ajusta por contraste.
+  var ESTADO_COLOR = { 'En curso': '#D1D5DB', 'Realizado': '#4caf50', 'No realizado': '#f44336' };
   var MES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   // Un color distinto por representante cuando el filtro esta en "Todos".
   var PALETTE = ['#1D4ED8', '#15803D', '#B45309', '#6D28D9', '#BE123C', '#0F766E', '#C2410C', '#334155', '#1E40AF', '#166534', '#9D174D', '#155E75'];
@@ -26,6 +27,9 @@
   var st = {
     usuarios: [], canManageTeam: false, tieneEquipo: false,
     myGoal: null, teamGoals: [], goalsCache: {}, metaMonth: 0, metaYear: 0,
+    // Panel superior de metas: periodo, plegado, metas del periodo y
+    // contador de peticiones (descarta respuestas viejas al cambiar de mes).
+    pMes: 0, pAnio: 0, pAbierto: true, pGoals: {}, pReq: 0,
     todos: [], pendingTodoId: null,
     vista: 'calendario', calY: 0, calM: 0,
     catalogo: { clientes: [], editable: false, total: 0 }, catTrabajo: [],
@@ -47,6 +51,15 @@
   }
   function toast(t) { RB.toast(t); }
   function money(n) { n = Number(n) || 0; return 'US$ ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  // Tinta legible sobre el color de la pastilla del calendario: los estados
+  // claros (En curso, gris claro) necesitan texto oscuro.
+  function tinta(color) {
+    var h = String(color || '').replace('#', '');
+    if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return '#fff';
+    var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.65 ? '#334155' : '#fff';
+  }
   function frac(r, p) { r = Number(r) || 0; p = Number(p) || 0; if (p > 0) return r / p; if (r > 0) return 1; return 0; }
   function pct(r, p) { return (frac(r, p) * 100).toFixed(0) + '%'; }
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -145,6 +158,8 @@
     document.body.appendChild(ov);
     $('vtCerrar').onclick = cerrarModal;
     ov.addEventListener('click', function (e) { if (e.target === ov) cerrarModal(); });
+
+    construirPanelMetas();
   }
 
   function abrirModal(titulo, html, listo) {
@@ -158,6 +173,170 @@
     var e = $(id); if (!e) return;
     e.textContent = msg || '';
     e.style.color = ok ? 'var(--ok)' : 'var(--bad)';
+  }
+
+  // ------------------------------------------------------------------
+  // Panel superior de metas de venta.
+  //
+  // Se alimenta de tres fuentes que YA respetan la jerarquia del servidor:
+  //   /api/users  -> solo el usuario y su personal a cargo
+  //   /api/goals  -> metas de esos mismos usuarios (month=0 = todo el año)
+  //   RB.rows()   -> filas visibles, de donde se suma ventaRealizada
+  // Por eso un supervisor ve las ventas de su equipo y nadie ve datos de
+  // otro equipo. No hay ningun cambio en el backend.
+  // ------------------------------------------------------------------
+  function construirPanelMetas() {
+    var host = $('vtMetaTop');
+    if (!host) return;
+    host.innerHTML =
+      '<div class="card vt-mtop">' +
+      '  <div class="vt-mtop-hd">' +
+      '    <div><h2 id="vtMtopTitulo">Metas de venta</h2><div class="vt-mtop-sub" id="vtMtopSub"></div></div>' +
+      '    <div class="vt-mtop-hd-r">' +
+      '      <div class="vt-mtop-year">' +
+      '        <button class="ghost small" id="vtMtopPrevA" title="Año anterior">&#8249;</button>' +
+      '        <b id="vtMtopAnio"></b>' +
+      '        <button class="ghost small" id="vtMtopNextA" title="Año siguiente">&#8250;</button>' +
+      '      </div>' +
+      '      <button class="ghost small vt-mtop-toggle" id="vtMtopToggle">Ocultar</button>' +
+      '    </div>' +
+      '  </div>' +
+      '  <div id="vtMtopContenido">' +
+      '    <div class="vt-mtop-tabs" id="vtMtopTabs"></div>' +
+      '    <div class="vt-mtop-body" id="vtMtopBody"><span class="muted">Cargando metas...</span></div>' +
+      '  </div>' +
+      '</div>';
+
+    $('vtMtopTabs').onclick = function (e) {
+      var b = e.target.closest ? e.target.closest('[data-mes]') : null;
+      if (!b) return;
+      st.pMes = Number(b.getAttribute('data-mes'));
+      refrescarPanel();
+    };
+    $('vtMtopPrevA').onclick = function () { st.pAnio--; refrescarPanel(); };
+    $('vtMtopNextA').onclick = function () { st.pAnio++; refrescarPanel(); };
+    $('vtMtopToggle').onclick = function () {
+      st.pAbierto = !st.pAbierto;
+      try { localStorage.setItem('rb.metas.abierto', st.pAbierto ? '1' : '0'); } catch (e) { /* sin almacenamiento */ }
+      aplicarAperturaPanel();
+    };
+    aplicarAperturaPanel();
+  }
+
+  function aplicarAperturaPanel() {
+    var c = $('vtMtopContenido'), b = $('vtMtopToggle');
+    if (c) c.classList.toggle('hide', !st.pAbierto);
+    if (b) b.textContent = st.pAbierto ? 'Ocultar' : 'Ver metas';
+  }
+
+  function refrescarPanel() {
+    if (!RB || RB.module() !== 'ventas' || !$('vtMtopBody')) return;
+    pintarPanelMetas();                 // pestañas y periodo al instante
+    var n = ++st.pReq, anio = st.pAnio, mes = st.pMes;
+    api('GET', '/api/goals?month=' + mes + '&year=' + anio).then(function (res) {
+      if (n !== st.pReq || RB.module() !== 'ventas') return;  // respuesta vieja
+      st.pGoals = {};
+      if (res.ok) (res.data.goals || []).forEach(function (g) {
+        st.pGoals[g.userId] = (st.pGoals[g.userId] || 0) + (Number(g.amount) || 0);
+      });
+      pintarPanelMetas();
+    });
+  }
+
+  function pintarPanelMetas() {
+    var u = me();
+    if (!u || !RB || RB.module() !== 'ventas' || !$('vtMtopBody')) return;
+    var anio = st.pAnio, mes = st.pMes, total = mes === 0, ahora = new Date();
+    var periodo = total ? 'Total anual ' + anio : MESES[mes - 1] + ' ' + anio;
+    var alcance = u.role === 'admin' ? 'Todos los vendedores'
+      : (st.usuarios.length > 1 ? 'Tu meta y la de tu equipo a cargo' : 'Tu meta personal');
+    $('vtMtopTitulo').textContent = 'Metas de venta — ' + periodo;
+    $('vtMtopAnio').textContent = anio;
+    $('vtMtopSub').textContent = alcance + ' · ' + (total ? 'suma de los 12 meses' : MESES[mes - 1]);
+
+    var tabs = [{ m: 0, t: 'TOTAL' }].concat(MES_ABBR.map(function (t, i) { return { m: i + 1, t: t }; }));
+    $('vtMtopTabs').innerHTML = tabs.map(function (x) {
+      var cls = 'vt-mtop-tab' + (x.m === mes ? ' active' : '') +
+        (x.m > 0 && x.m === ahora.getMonth() + 1 && anio === ahora.getFullYear() ? ' now' : '');
+      return '<button type="button" class="' + cls + '" data-mes="' + x.m + '">' + x.t + '</button>';
+    }).join('');
+
+    // Venta realizada del periodo por vendedor. Se suma ventaRealizada de
+    // todas las actividades visibles, igual que en el panel original.
+    var realizado = {}, acts = {};
+    rows().forEach(function (r) {
+      if (!r.dia) return;
+      var p = String(r.dia).split('-');
+      if (Number(p[0]) !== anio) return;
+      if (!total && Number(p[1]) !== mes) return;
+      var id = r.ownerId || u.id;
+      realizado[id] = (realizado[id] || 0) + (Number(r.ventaRealizada) || 0);
+      acts[id] = (acts[id] || 0) + 1;
+    });
+
+    function avance(r, g) { return g > 0 ? Math.min(100, r / g * 100) : 0; }
+    // Sin meta asignada no se inventa un 0%: se muestra una raya.
+    function porcentaje(r, g) { return g > 0 ? pct(r, g) : '—'; }
+    function barra(r, g) {
+      var over = g > 0 && r >= g;
+      return '<div class="vt-bar"><i class="' + (over ? 'over' : '') + '" style="width:' + avance(r, g).toFixed(1) + '%"></i></div>';
+    }
+
+    var miMeta = st.pGoals[u.id] || 0, miR = realizado[u.id] || 0;
+    var html = '<div class="vt-kpis">' +
+      '<div class="vt-kpi"><span>Mi meta</span><b>' + money(miMeta) + '</b><small>' + (miMeta > 0 ? periodo : 'Sin meta asignada') + '</small></div>' +
+      '<div class="vt-kpi"><span>Realizado</span><b>' + money(miR) + '</b><small>' + (acts[u.id] || 0) + ' actividades</small></div>' +
+      '<div class="vt-kpi"><span>Falta</span><b>' + money(Math.max(0, miMeta - miR)) + '</b><small>' + (miMeta > 0 && miR >= miMeta ? '¡Meta cumplida!' : 'para llegar a la meta') + '</small></div>' +
+      '<div class="vt-kpi"><span>% Cumplimiento</span><b>' + porcentaje(miR, miMeta) + '</b><small>' + (miMeta > 0 ? 'sobre la meta' : 'sin meta asignada') + '</small></div>' +
+      '</div>' + barra(miR, miMeta);
+
+    // Un usuario por fila, en el orden que devuelve /api/users (visible).
+    var vistos = {};
+    var lista = (st.usuarios.length ? st.usuarios : [u]).filter(function (x) {
+      if (!x || !x.id || vistos[x.id]) return false;
+      vistos[x.id] = true; return true;
+    });
+    if (lista.length > 1) {
+      var tMeta = 0, tReal = 0, sinMeta = 0;
+      var filas = lista.map(function (x) {
+        var g = st.pGoals[x.id] || 0, r = realizado[x.id] || 0;
+        if (!g) sinMeta++;
+        tMeta += g; tReal += r;
+        var yo = x.id === u.id;
+        var cls = (yo ? 'vt-mtop-yo' : '') + (st.fOwner === x.id ? ' vt-mtop-sel' : '');
+        return '<tr data-uid="' + esc(x.id) + '" class="' + cls + '" title="Click para filtrar la vista por ' + esc(x.name) + '">' +
+          '<td>' + esc(x.name) + (yo ? ' <b>(yo)</b>' : '') +
+            '<div class="vt-mtop-nota" style="margin:0">' + esc(ROLE_LABEL[x.role] || x.role) + ' · ' + (acts[x.id] || 0) + ' activ.</div></td>' +
+          '<td class="r">' + money(g) + '</td>' +
+          '<td class="r">' + money(r) + '</td>' +
+          '<td class="r">' + money(Math.max(0, g - r)) + '</td>' +
+          '<td class="r">' + porcentaje(r, g) + '<div class="vt-mtop-mini"><i style="width:' + avance(r, g).toFixed(1) + '%"></i></div></td>' +
+          '</tr>';
+      }).join('');
+      html += '<div class="vt-mtop-team"><table><thead><tr>' +
+        '<th>Vendedor</th><th class="r">Meta</th><th class="r">Realizado</th><th class="r">Falta</th><th class="r">%</th>' +
+        '</tr></thead><tbody>' + filas +
+        '<tr class="vt-mtop-total"><td>Total (' + lista.length + ')</td><td class="r">' + money(tMeta) + '</td>' +
+        '<td class="r">' + money(tReal) + '</td><td class="r">' + money(Math.max(0, tMeta - tReal)) + '</td>' +
+        '<td class="r">' + porcentaje(tReal, tMeta) + '</td></tr>' +
+        '</tbody></table></div>' + barra(tReal, tMeta) +
+        '<div class="vt-mtop-nota">Avance del equipo. ' + (sinMeta ? sinMeta + ' sin meta asignada en este periodo. ' : '') +
+        'Click en un vendedor para filtrar la vista.</div>';
+    } else {
+      html += '<div class="vt-mtop-nota">Solo ves tus propias ventas. La venta realizada se suma de las actividades del periodo.</div>';
+    }
+    var body = $('vtMtopBody');
+    body.innerHTML = html;
+    body.querySelectorAll('[data-uid]').forEach(function (tr) {
+      tr.onclick = function () {
+        var id = tr.getAttribute('data-uid');
+        st.fOwner = (st.fOwner === id) ? '' : id;
+        var sel = $('vtFOwner'); if (sel) sel.value = st.fOwner;
+        pintarPanelMetas();   // refleja la fila seleccionada
+        RB.render();          // aplica el filtro a Calendario / Lista / Resumen
+      };
+    });
+    aplicarAperturaPanel();
   }
 
   function actualizarPermisos() {
@@ -362,6 +541,7 @@
       if (rs.every(function (r) { return r.ok; })) {
         error('vtGoalErr', 'Metas guardadas correctamente.', true);
         cargarMetas();
+        refrescarPanel();   // el panel superior refleja el cambio al instante
       } else error('vtGoalErr', 'No se pudieron guardar todas las metas.');
     });
   }
@@ -727,11 +907,13 @@
       var delDia = porDia[clave] || [];
       delDia.slice(0, 8).forEach(function (r) {
         var color = porVendedor ? (colorOwner[r.ownerId] || '#64748b') : (ESTADO_COLOR[r.estado] || '#64748b');
-        // Solo se marca lo ya ejecutado; lo pendiente no lleva ninguna marca.
+        // "En curso" lleva siempre una marca gris claro: asi se distingue
+        // tambien cuando la pastilla esta coloreada por representante.
         var marca = r.estado === 'Realizado' ? '<span class="cal-mark ok">✓</span>'
-          : r.estado === 'No realizado' ? '<span class="cal-mark no">✗</span>' : '';
-        var tip = (porVendedor ? (on[r.ownerId] || '') + ' — ' : '') + (r.cliente || '') + ' · ' + (r.estado || '');
-        html += '<span class="cal-chip" data-row="' + esc(r.id) + '" title="' + esc(tip) + '" style="background:' + color + '">' +
+          : r.estado === 'No realizado' ? '<span class="cal-mark no">✗</span>'
+          : '<span class="cal-mark pend">&#9679;</span>';
+        var tip = (porVendedor ? (on[r.ownerId] || '') + ' — ' : '') + (r.cliente || '') + ' · ' + (r.estado || 'En curso');
+        html += '<span class="cal-chip" data-row="' + esc(r.id) + '" title="' + esc(tip) + '" style="background:' + color + ';color:' + tinta(color) + '">' +
           marca + esc(r.cliente || r.trabajo || 'Actividad') + '</span>';
       });
       if (delDia.length > 8) html += '<span class="muted">+' + (delDia.length - 8) + ' más</span>';
@@ -740,18 +922,18 @@
     html += '</div></div><div class="cal-leyenda-reps">';
     if (porVendedor) {
       ids.forEach(function (id) {
-        html += '<span><i style="background:' + colorOwner[id] + '"></i>' + esc(repsVistos[id]) + '</span>';
+        html += '<span><i style="background:' + colorOwner[id] + ';border:1px solid #B9C6C2"></i>' + esc(repsVistos[id]) + '</span>';
       });
       if (!ids.length) html += '<span>Sin actividades para este filtro.</span>';
     } else {
       Object.keys(ESTADO_COLOR).forEach(function (e) {
-        html += '<span><i style="background:' + ESTADO_COLOR[e] + '"></i>' + esc(e) + '</span>';
+        html += '<span><i style="background:' + ESTADO_COLOR[e] + ';border:1px solid #B9C6C2"></i>' + esc(e) + '</span>';
       });
     }
     html += '</div><div class="cal-legend" style="font-size:11px">' +
       '<span><span class="cal-mark ok">✓</span> Realizado</span>' +
       '<span><span class="cal-mark no">✗</span> No realizado</span>' +
-      '<span>Sin marca = pendiente</span></div></div>';
+      '<span><span class="cal-mark pend">&#9679;</span> En curso (gris claro)</span></div></div>';
     container.innerHTML = html;
 
     $('vtCalPrev').onclick = function () { moverCal(-1); };
@@ -972,8 +1154,11 @@
   function onModuleChange(id) {
     var host = $('vtToolbar');
     if (host) host.classList.toggle('hide', id !== 'ventas');
+    var top = $('vtMetaTop');
+    if (top) top.classList.toggle('hide', id !== 'ventas');
     st.vista = (id === 'ventas') ? (st.vista || 'calendario') : null;
     actualizarPermisos();
+    if (id === 'ventas') refrescarPanel();
   }
 
   // El boton "Editar" del modal de detalle re-renderiza el formulario por su
@@ -996,6 +1181,8 @@
       RB = bridge;
       st.calY = new Date().getFullYear(); st.calM = new Date().getMonth();
       st.metaMonth = st.calM + 1; st.metaYear = st.calY;
+      st.pAnio = st.calY; st.pMes = st.calM + 1;
+      try { st.pAbierto = localStorage.getItem('rb.metas.abierto') !== '0'; } catch (e) { st.pAbierto = true; }
       construirDOM();
       api('GET', '/api/me').then(function (res) {
         if (res.ok) {
@@ -1011,6 +1198,7 @@
         }
         actualizarPermisos();
         decorarFormulario();
+        refrescarPanel();
         RB.render();
       });
       cargarTodos();
@@ -1018,7 +1206,9 @@
       VentasTools.onModuleChange(RB.module());
     },
     onModuleChange: onModuleChange,
-    onRowsLoaded: function () { if (st.vista) RB.render(); },
+    // loadRows() ya vuelve a pintar la vista; aqui solo se recalcula el panel
+    // de metas con las ventas recien llegadas.
+    onRowsLoaded: function () { if (RB && RB.module() === 'ventas') pintarPanelMetas(); },
     decorarFormulario: decorarFormulario,
     alEditar: alEditar,
     filtrar: filtrar,

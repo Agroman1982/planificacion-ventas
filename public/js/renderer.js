@@ -6,7 +6,18 @@
 
 (function() {
   'use strict';
-  
+
+  // Contraste automatico: un estado puede tener fondo claro (p.ej. "En curso"
+  // en gris claro) y el texto blanco seria ilegible. Devuelve tinta oscura
+  // para fondos claros y blanca para los oscuros.
+  function textoContraste(color) {
+    var h = String(color || '').replace('#', '');
+    if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return '#fff';
+    var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.65 ? '#0F172A' : '#fff';
+  }
+
   window.ModuleRenderer = {
     // Lista de usuarios para campos userselect (se carga al abrir el modulo)
     users: [],
@@ -536,7 +547,7 @@
       badge.className = 'badge';
       badge.textContent = row[stateField] || '';
       badge.style.background = stateColors[row[stateField]] || '#9e9e9e';
-      badge.style.color = '#fff';
+      badge.style.color = textoContraste(badge.style.background);
       card.appendChild(badge);
       
       return card;
@@ -620,9 +631,9 @@
         const badge = document.createElement('span');
         badge.className = 'badge';
         badge.textContent = row[estadoFieldName];
-        const color = states.colors ? states.colors[row[estadoFieldName]] : null;
-        if (color) badge.style.background = color;
-        badge.style.color = '#fff';
+        const color = (states.colors && states.colors[row[estadoFieldName]]) || '#64748B';
+        badge.style.background = color;
+        badge.style.color = textoContraste(color);
         header.appendChild(badge);
       }
       

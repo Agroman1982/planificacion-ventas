@@ -112,7 +112,7 @@
     "states": {
       "values": ["En curso", "Realizado", "No realizado"],
       "colors": {
-        "En curso": "#ff9800",
+        "En curso": "#D1D5DB",
         "Realizado": "#4caf50",
         "No realizado": "#f44336"
       },

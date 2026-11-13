@@ -45,6 +45,26 @@ y no es editable; el **Estado** no aparece en el formulario (todo registro nace
 «En curso») y se resuelve en el detalle junto con si la venta se concretó, el
 motivo cuando no se logró y el monto real de la venta.
 
+## Panel superior de metas (app unificada)
+En `/` y `/app`, arriba de la barra de herramientas de Ventas se muestra:
+- 4 KPIs de la **meta del representante** (Meta / Realizado / Falta / % Cumplimiento)
+  y una barra de avance.
+- Si el usuario tiene personal a cargo, una tabla **Vendedor / Meta / Realizado /
+  Falta / %** con total del equipo y barra de avance. Un clic en un vendedor aplica
+  el filtro a Calendario, Lista y Resumen.
+- Pestañas **TOTAL** (suma anual) + Ene…Dic, selector de año y botón para plegar
+  el panel (la preferencia se recuerda en el navegador).
+
+El alcance lo fija el servidor: `/api/users`, `/api/goals` y las filas visibles ya
+aplican `idsVisiblesPara()`, de modo que **cada supervisor ve únicamente las ventas
+de su equipo**. `ventaRealizada` se suma por `dia` dentro del periodo elegido;
+cuando no hay meta asignada se muestra «—» en lugar de un 0% engañoso.
+
+## Colores de estado en Ventas
+`En curso` = **gris claro** (`#D1D5DB`) con texto oscuro; `Realizado` = verde (✓) y
+`No realizado` = rojo (✗). En el calendario con el filtro «Todos» el color de la
+pastilla identifica al representante y la marca gris ● identifica «En curso».
+
 ## Seguridad
 - Contraseñas hasheadas (scrypt) y sesión por cookie HttpOnly.
 - **Aislamiento a nivel de servidor**: la API filtra las filas por dueño; un vendedor

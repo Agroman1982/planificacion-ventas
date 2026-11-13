@@ -114,6 +114,7 @@
   .cal-mark{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;min-width:13px;border-radius:50%;font-size:9px;font-weight:800;line-height:1;margin-right:3px;background:#fff;vertical-align:middle}
   .cal-mark.ok{color:#15803D}
   .cal-mark.no{color:#B91C1C}
+  .cal-mark.pend{color:#64748B}
   .cal-leyenda-reps{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;font-size:12px;color:var(--muted)}
   .cal-leyenda-reps i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:middle}
   /* Detalle de Ventas: resultado de la actividad (sin Editar / Eliminar) */
@@ -126,6 +127,47 @@
   .vt-res-activo{outline:3px solid #1D4ED8;outline-offset:2px}
   .vt-res-aviso{font-size:12px;color:var(--muted);margin-bottom:10px}
   .vt-res-err{font-size:13px;min-height:18px;margin-top:8px;color:var(--bad)}
+  /* Panel superior de metas: meta propia + ventas del personal a cargo */
+  .vt-mtop{padding:0;overflow:hidden}
+  .vt-mtop-hd{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:linear-gradient(100deg,#126B58,#1B755E);color:#fff;padding:10px 14px}
+  .vt-mtop-hd h2{margin:0;font-size:15px;font-weight:800;color:#fff}
+  .vt-mtop-sub{font-size:11px;opacity:.85;margin-top:1px}
+  .vt-mtop-hd-r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .vt-mtop-year{display:flex;gap:4px;align-items:center;background:rgba(255,255,255,.15);border-radius:8px;padding:2px 4px}
+  .vt-mtop-year b{min-width:44px;text-align:center;font-size:13px;font-variant-numeric:tabular-nums}
+  .vt-mtop-year button,.vt-mtop-toggle{background:rgba(255,255,255,.92);color:#126B58;padding:4px 9px;font-size:12px;border-radius:6px}
+  .vt-mtop-year button:hover,.vt-mtop-toggle:hover{background:#fff}
+  .vt-mtop-tabs{display:flex;gap:4px;flex-wrap:wrap;padding:8px 12px;background:#F1F7F4;border-bottom:1px solid var(--line)}
+  .vt-mtop-tab{padding:4px 9px;font-size:11px;font-weight:700;border-radius:999px;background:#fff;color:#334155;border:1px solid var(--line)}
+  .vt-mtop-tab:hover{background:#E3EFE9}
+  .vt-mtop-tab.active{background:var(--bg);border-color:var(--bg);color:#fff}
+  .vt-mtop-tab.now:not(.active){box-shadow:0 0 0 2px #A7D8C4}
+  .vt-mtop-body{padding:12px 14px}
+  .vt-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:560px){.vt-kpis{grid-template-columns:1fr 1fr}}
+  .vt-kpi{border:1px solid #DDE8E2;background:#F6FAF8;border-radius:10px;padding:8px 10px}
+  .vt-kpi span{display:block;font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .vt-kpi b{display:block;font-size:17px;font-variant-numeric:tabular-nums;margin-top:2px}
+  .vt-kpi small,.vt-mtop-nota{display:block;font-size:10px;color:var(--muted);margin-top:2px}
+  .vt-bar{height:8px;border-radius:6px;background:#E3ECE8;overflow:hidden;margin-top:10px}
+  .vt-bar i{display:block;height:100%;border-radius:6px;background:#1B755E;transition:width .4s ease}
+  .vt-bar i.over{background:#B45309}
+  .vt-mtop-nota{margin-top:6px;font-size:11px}
+  .vt-mtop-team{margin-top:14px;overflow:auto;max-height:290px;scrollbar-gutter:stable}
+  .vt-mtop-team table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px}
+  .vt-mtop-team th,.vt-mtop-team td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}
+  .vt-mtop-team th:first-child,.vt-mtop-team td:first-child{width:32%}
+  .vt-mtop-team th:nth-child(2),.vt-mtop-team th:nth-child(3),.vt-mtop-team th:nth-child(4){width:18%}
+  .vt-mtop-team th:last-child,.vt-mtop-team td:last-child{width:14%;padding-right:14px}
+  .vt-mtop-team th{font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);background:#F6FAF8;position:sticky;top:0;z-index:1}
+  .vt-mtop-team td.r,.vt-mtop-team th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .vt-mtop-team tr.vt-mtop-yo td{background:#F1F7F4}
+  .vt-mtop-team tr.vt-mtop-sel td{background:#DCF0E6}
+  .vt-mtop-team tr.vt-mtop-total td{font-weight:800;background:#E8F3EE;border-top:2px solid #B9C6C2}
+  .vt-mtop-team tbody tr[data-uid]{cursor:pointer}
+  .vt-mtop-team tbody tr[data-uid]:hover td{background:#E8F3EE}
+  .vt-mtop-mini{height:5px;width:78%;min-width:0;background:#E3ECE8;border-radius:4px;overflow:hidden;margin:3px 0 0 auto}
+  .vt-mtop-mini i{display:block;height:100%;background:#1B755E}
 </style>
 </head>
 <body>
@@ -187,6 +229,9 @@
         <button class="ghost small" id="logoutBtn2">Salir</button>
       </div>
     </div>
+
+    <!-- Panel de metas y ventas del equipo (solo Planificacion de Ventas) -->
+    <div id="vtMetaTop" class="hide"></div>
 
     <!-- Herramientas exclusivas de Planificacion de Ventas -->
     <div id="vtToolbar"></div>
@@ -393,6 +438,8 @@
         moduleUsers=res.data.users;
         if(window.ModuleRenderer) ModuleRenderer.users=moduleUsers;
       }
+      // El panel de metas se recalcula con las ventas recien cargadas.
+      if(window.VentasTools && VentasTools.onRowsLoaded) VentasTools.onRowsLoaded();
       renderCurrentView();
     });
   }
