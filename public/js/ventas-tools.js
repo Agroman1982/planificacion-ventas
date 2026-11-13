@@ -14,7 +14,10 @@
   var RB = null;
   var ROLE_LABEL = { admin: 'Administrador', supervisor: 'Supervisor', coordinador: 'Coordinador', retail: 'Vendedor Retail', kam: 'KAM (Agroindustria)', promotor: 'Promotor' };
   var ROLES = ['admin', 'supervisor', 'coordinador', 'retail', 'kam', 'promotor'];
-  var ROLES_EQUIPO = ['coordinador', 'retail', 'kam', 'promotor'];
+  // Regla de negocio: SOLO estos roles tienen meta de ventas y pueden ser
+  // elegidos como "vendedor". Coordinadores, supervisores y admin son jefes
+  // de equipo: no llevan meta propia ni aparecen en la tabla de metas.
+  var ROLES_VENDEDOR = ['retail', 'kam', 'promotor'];
   var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   var ESTADOS = ['En curso', 'Realizado', 'No realizado'];
   // "En curso" = gris claro (pendiente). El texto se ajusta por contraste.
@@ -105,7 +108,8 @@
 
   function esJefe() { var u = me(); return !!(u && (u.role === 'admin' || u.role === 'supervisor' || u.role === 'coordinador' || st.canManageTeam || st.tieneEquipo)); }
   function veVarios() { return esJefe(); }
-  function reps() { return st.usuarios.filter(function (u) { return ROLES_EQUIPO.indexOf(u.role) >= 0; }); }
+  function esVendedor(u) { return !!u && ROLES_VENDEDOR.indexOf(u.role) >= 0; }
+  function reps() { return st.usuarios.filter(esVendedor); }
   function setVal(id, v) { var e = $(id); if (e) e.value = v == null ? '' : v; }
   function val(id) { var e = $(id); return e ? e.value.trim() : ''; }
 
@@ -124,7 +128,7 @@
       '    <button class="ghost small" data-vt="resumen">Resumen</button>' +
       '    <span style="flex:1"></span>' +
       '    <button class="ghost small" data-vt="metas" id="vtMetas">Metas</button>' +
-      '    <button class="ghost small" data-vt="todo" id="vtTodo">ToDo</button>' +
+      '    <button class="ghost small" data-vt="todo" id="vtTodo">ToDo <span id="vtTodoNum" class="vt-todo-num cero">0</span></button>' +
       '    <button class="ghost small" data-vt="clientes" id="vtClientes">Clientes</button>' +
       '    <button class="ghost small" data-vt="usuarios" id="vtUsuarios">Vendedores</button>' +
       '  </div>' +
@@ -160,6 +164,7 @@
     ov.addEventListener('click', function (e) { if (e.target === ov) cerrarModal(); });
 
     construirPanelMetas();
+    construirTodoPanel();
   }
 
   function abrirModal(titulo, html, listo) {
@@ -247,9 +252,10 @@
     var u = me();
     if (!u || !RB || RB.module() !== 'ventas' || !$('vtMtopBody')) return;
     var anio = st.pAnio, mes = st.pMes, total = mes === 0, ahora = new Date();
+    var soyVendedor = esVendedor(u);
     var periodo = total ? 'Total anual ' + anio : MESES[mes - 1] + ' ' + anio;
-    var alcance = u.role === 'admin' ? 'Todos los vendedores'
-      : (st.usuarios.length > 1 ? 'Tu meta y la de tu equipo a cargo' : 'Tu meta personal');
+    var alcance = soyVendedor ? 'Tu meta personal'
+      : (u.role === 'admin' ? 'Todos los vendedores' : 'Tu equipo a cargo');
     $('vtMtopTitulo').textContent = 'Metas de venta — ' + periodo;
     $('vtMtopAnio').textContent = anio;
     $('vtMtopSub').textContent = alcance + ' · ' + (total ? 'suma de los 12 meses' : MESES[mes - 1]);
@@ -282,26 +288,38 @@
       return '<div class="vt-bar"><i class="' + (over ? 'over' : '') + '" style="width:' + avance(r, g).toFixed(1) + '%"></i></div>';
     }
 
-    var miMeta = st.pGoals[u.id] || 0, miR = realizado[u.id] || 0;
-    var html = '<div class="vt-kpis">' +
-      '<div class="vt-kpi"><span>Mi meta</span><b>' + money(miMeta) + '</b><small>' + (miMeta > 0 ? periodo : 'Sin meta asignada') + '</small></div>' +
-      '<div class="vt-kpi"><span>Realizado</span><b>' + money(miR) + '</b><small>' + (acts[u.id] || 0) + ' actividades</small></div>' +
-      '<div class="vt-kpi"><span>Falta</span><b>' + money(Math.max(0, miMeta - miR)) + '</b><small>' + (miMeta > 0 && miR >= miMeta ? '¡Meta cumplida!' : 'para llegar a la meta') + '</small></div>' +
-      '<div class="vt-kpi"><span>% Cumplimiento</span><b>' + porcentaje(miR, miMeta) + '</b><small>' + (miMeta > 0 ? 'sobre la meta' : 'sin meta asignada') + '</small></div>' +
-      '</div>' + barra(miR, miMeta);
-
-    // Un usuario por fila, en el orden que devuelve /api/users (visible).
+    // Solo vendedores (retail / kam / promotor): ni coordinadores, ni
+    // supervisores, ni admin tienen meta de ventas ni aparecen como filas.
     var vistos = {};
     var lista = (st.usuarios.length ? st.usuarios : [u]).filter(function (x) {
-      if (!x || !x.id || vistos[x.id]) return false;
+      if (!x || !x.id || !esVendedor(x) || vistos[x.id]) return false;
       vistos[x.id] = true; return true;
     });
+    var tMeta = 0, tReal = 0, tActs = 0, sinMeta = 0;
+    lista.forEach(function (x) {
+      var g = st.pGoals[x.id] || 0, r = realizado[x.id] || 0;
+      if (!g) sinMeta++;
+      tMeta += g; tReal += r; tActs += (acts[x.id] || 0);
+    });
+
+    // Un jefe sin meta propia ve los TOTALES DE SU EQUIPO en los 4 KPIs,
+    // en lugar de un "Mi meta US$ 0,00 / Sin meta asignada" sin sentido.
+    var kpiMeta = soyVendedor ? (st.pGoals[u.id] || 0) : tMeta;
+    var kpiReal = soyVendedor ? (realizado[u.id] || 0) : tReal;
+    var kpiActs = soyVendedor ? (acts[u.id] || 0) : tActs;
+    var notaMeta = soyVendedor
+      ? (kpiMeta > 0 ? periodo : 'Sin meta asignada')
+      : (lista.length ? lista.length + ' vendedores · ' + periodo : 'Sin vendedores a cargo');
+    var html = '<div class="vt-kpis">' +
+      '<div class="vt-kpi"><span>' + (soyVendedor ? 'Mi meta' : 'Meta del equipo') + '</span><b>' + money(kpiMeta) + '</b><small>' + notaMeta + '</small></div>' +
+      '<div class="vt-kpi"><span>Realizado</span><b>' + money(kpiReal) + '</b><small>' + kpiActs + ' actividades</small></div>' +
+      '<div class="vt-kpi"><span>Falta</span><b>' + money(Math.max(0, kpiMeta - kpiReal)) + '</b><small>' + (kpiMeta > 0 && kpiReal >= kpiMeta ? '¡Meta cumplida!' : 'para llegar a la meta') + '</small></div>' +
+      '<div class="vt-kpi"><span>% Cumplimiento</span><b>' + porcentaje(kpiReal, kpiMeta) + '</b><small>' + (kpiMeta > 0 ? 'sobre la meta' : 'sin meta asignada') + '</small></div>' +
+      '</div>' + barra(kpiReal, kpiMeta);
+
     if (lista.length > 1) {
-      var tMeta = 0, tReal = 0, sinMeta = 0;
       var filas = lista.map(function (x) {
         var g = st.pGoals[x.id] || 0, r = realizado[x.id] || 0;
-        if (!g) sinMeta++;
-        tMeta += g; tReal += r;
         var yo = x.id === u.id;
         var cls = (yo ? 'vt-mtop-yo' : '') + (st.fOwner === x.id ? ' vt-mtop-sel' : '');
         return '<tr data-uid="' + esc(x.id) + '" class="' + cls + '" title="Click para filtrar la vista por ' + esc(x.name) + '">' +
@@ -316,14 +334,17 @@
       html += '<div class="vt-mtop-team"><table><thead><tr>' +
         '<th>Vendedor</th><th class="r">Meta</th><th class="r">Realizado</th><th class="r">Falta</th><th class="r">%</th>' +
         '</tr></thead><tbody>' + filas +
-        '<tr class="vt-mtop-total"><td>Total (' + lista.length + ')</td><td class="r">' + money(tMeta) + '</td>' +
+        '<tr class="vt-mtop-total"><td>Total (' + lista.length + ' vendedores)</td><td class="r">' + money(tMeta) + '</td>' +
         '<td class="r">' + money(tReal) + '</td><td class="r">' + money(Math.max(0, tMeta - tReal)) + '</td>' +
         '<td class="r">' + porcentaje(tReal, tMeta) + '</td></tr>' +
         '</tbody></table></div>' + barra(tReal, tMeta) +
         '<div class="vt-mtop-nota">Avance del equipo. ' + (sinMeta ? sinMeta + ' sin meta asignada en este periodo. ' : '') +
         'Click en un vendedor para filtrar la vista.</div>';
     } else {
-      html += '<div class="vt-mtop-nota">Solo ves tus propias ventas. La venta realizada se suma de las actividades del periodo.</div>';
+      html += '<div class="vt-mtop-nota">' + (soyVendedor
+        ? 'Solo ves tus propias ventas. La venta realizada se suma de las actividades del periodo.'
+        : (lista.length ? 'Un vendedor a cargo. La venta realizada se suma de las actividades del periodo.'
+          : 'No hay vendedores visibles a cargo en este periodo.')) + '</div>';
     }
     var body = $('vtMtopBody');
     body.innerHTML = html;
@@ -343,9 +364,12 @@
     if (!$('vtToolbar')) return;
     var u = me(); if (!u) return;
     var jefe = esJefe();
-    [['vtMetas', jefe], ['vtTodo', jefe], ['vtClientes', u.role === 'admin' || u.role === 'supervisor'], ['vtUsuarios', u.role === 'admin']].forEach(function (p) {
+    // ToDo es visible para TODOS: cada usuario debe ver sus tareas asignadas.
+    // El alta de tareas sigue siendo exclusiva de jefes de equipo.
+    [['vtMetas', jefe], ['vtClientes', u.role === 'admin' || u.role === 'supervisor'], ['vtUsuarios', u.role === 'admin']].forEach(function (p) {
       var el = $(p[0]); if (el) el.classList.toggle('hide', !p[1]);
     });
+    var asignar = $('vtTodoAsignar'); if (asignar) asignar.classList.toggle('hide', !jefe);
     var fw = $('vtFOwnerWrap'); if (fw) fw.classList.toggle('hide', !jefe);
     var sel = $('vtFOwner');
     if (sel && jefe) {
@@ -488,16 +512,23 @@
       if (!total && Number(p[1]) !== m) return;
       realizadoPorUsuario[r.ownerId] = (realizadoPorUsuario[r.ownerId] || 0) + Number(r.ventaRealizada || 0);
     });
-    var miMeta = st.goalsCache[u.id] || 0;
-    var miR = realizadoPorUsuario[u.id] || 0;
-    $('vtMetaResumen').innerHTML = '<div class="vt-meta-grid">' +
-      '<div><span>Mi meta</span><b>' + money(miMeta) + '</b></div>' +
-      '<div><span>Realizado</span><b>' + money(miR) + '</b></div>' +
-      '<div><span>Falta</span><b>' + money(Math.max(0, miMeta - miR)) + '</b></div>' +
-      '<div><span>Cumplimiento</span><b>' + pct(miR, miMeta) + '</b></div>' +
-      '</div>';
-
+    // Los jefes (supervisor / coordinador / admin) no tienen meta propia:
+    // el resumen del modal tambien muestra el agregado de sus vendedores.
     var lista = reps().filter(function (x) { return x.id !== u.id; });
+    var tMeta = 0, tReal = 0;
+    lista.forEach(function (x) {
+      tMeta += st.goalsCache[x.id] || 0;
+      tReal += realizadoPorUsuario[x.id] || 0;
+    });
+    var jefe = !esVendedor(u);
+    var kMeta = jefe ? tMeta : (st.goalsCache[u.id] || 0);
+    var kReal = jefe ? tReal : (realizadoPorUsuario[u.id] || 0);
+    $('vtMetaResumen').innerHTML = '<div class="vt-meta-grid">' +
+      '<div><span>' + (jefe ? 'Meta del equipo' : 'Mi meta') + '</span><b>' + money(kMeta) + '</b></div>' +
+      '<div><span>Realizado</span><b>' + money(kReal) + '</b></div>' +
+      '<div><span>Falta</span><b>' + money(Math.max(0, kMeta - kReal)) + '</b></div>' +
+      '<div><span>Cumplimiento</span><b>' + pct(kReal, kMeta) + '</b></div>' +
+      '</div>';
     // En modo "total anual" las celdas son sumas de 12 meses: son de solo
     // lectura, porque guardarlas en un mes concreto destruiria el detalle.
     var soloLectura = !!total;
@@ -549,55 +580,42 @@
   // ------------------------------------------------------------------
   // ToDo del supervisor
   // ------------------------------------------------------------------
-  function cargarTodos() {
-    return api('GET', '/api/todos').then(function (res) {
-      if (res.ok) st.todos = res.data.todos || [];
-      if ($('vtTodoLista')) pintarTodos();
-    });
+  // Panel ToDo siempre visible (representante y supervisor). Antes el ToDo
+  // solo existia dentro de un modal y el boton se ocultaba a los vendedores.
+  function construirTodoPanel() {
+    var host = $('vtTodoTop');
+    if (!host) return;
+    host.innerHTML =
+      '<div class="card vt-todo-top">' +
+      '  <div class="vt-todo-hd">' +
+      '    <div><h2>ToDo <span id="vtTodoBadge" class="vt-todo-badge">0</span></h2>' +
+      '    <div class="vt-todo-sub" id="vtTodoSub"></div></div>' +
+      '    <div class="vt-todo-hd-r">' +
+      '      <button class="small" id="vtTodoAsignar">+ Asignar tarea</button>' +
+      '      <button class="ghost small" id="vtTodoRefrescar" title="Actualizar lista">Actualizar</button>' +
+      '    </div>' +
+      '  </div>' +
+      '  <div id="vtTodoCuerpo" class="vt-todo-cuerpo"></div>' +
+      '</div>';
+    $('vtTodoAsignar').onclick = abrirTodo;
+    $('vtTodoRefrescar').onclick = cargarTodos;
   }
 
-  function abrirTodo() {
-    var html = '<div id="vtTodoLista"></div>' +
-      '<h3 style="margin:16px 0 8px">Asignar nueva tarea</h3>' +
-      '<div class="grid">' +
-      '<div><label>Representante</label><select id="vtTodoAssignee"></select></div>' +
-      '<div><label>Cliente</label><input id="vtTodoCliente"></div>' +
-      '<div><label>Ubicaci&oacute;n</label><input id="vtTodoUbicacion"></div>' +
-      '<div><label>Producto</label><input id="vtTodoProducto"></div>' +
-      '<div style="grid-column:1/-1"><label>Trabajo a realizar</label><textarea id="vtTodoTrabajo"></textarea></div>' +
-      '<div><label>Venta a concretar (US$)</label><input id="vtTodoVenta" type="number" min="0" step="0.01"></div>' +
-      '<div><label>Observaciones</label><input id="vtTodoObs"></div>' +
-      '</div><div id="vtTodoErr" class="vt-err"></div>' +
-      '<button id="vtSaveTodo" style="margin-top:12px">Asignar tarea</button>';
-    abrirModal('Tareas ToDo', html, function () {
-      var sel = $('vtTodoAssignee');
-      sel.innerHTML = reps().filter(function (x) { return x.id !== me().id; }).map(function (x) {
-        return '<option value="' + esc(x.id) + '">' + esc(x.name) + ' (' + esc(ROLE_LABEL[x.role] || x.role) + ')</option>';
-      }).join('');
-      $('vtSaveTodo').onclick = guardarTodo;
-      pintarTodos();
-      cargarTodos();
-    });
+  function htmlTarea(t, on) {
+    return '<div class="vt-todo"><div class="vt-todo-info">' +
+      '<b>' + esc(t.cliente || 'Sin cliente') + '</b>' +
+      (t.ubicacion ? '<div>' + esc(t.ubicacion) + '</div>' : '') +
+      (t.trabajo ? '<div>' + esc(t.trabajo) + '</div>' : '') +
+      (t.producto ? '<div>Producto: ' + esc(t.producto) + '</div>' : '') +
+      (t.ventaConcretar > 0 ? '<div>Objetivo: ' + money(t.ventaConcretar) + '</div>' : '') +
+      (t.assigneeName ? '<div>Asignado a: <b>' + esc(t.assigneeName) + '</b></div>' : (t.assigneeId && on[t.assigneeId] ? '<div>Asignado a: <b>' + esc(on[t.assigneeId]) + '</b></div>' : '')) +
+      '</div><div class="vt-todo-acc">' +
+      '<button class="small" data-todo="' + esc(t.id) + '">Programar</button> ' +
+      (esJefe() ? '<button class="ghost small" data-borrar-todo="' + esc(t.id) + '">Borrar</button>' : '') +
+      '</div></div>';
   }
 
-  function pintarTodos() {
-    var box = $('vtTodoLista'); if (!box) return;
-    if (!st.todos.length) { box.innerHTML = '<p class="muted">No hay tareas pendientes de programar.</p>'; return; }
-    var on = ownerNames();
-    box.innerHTML = '<p class="muted" style="font-size:13px;margin:0 0 10px">Haz click en "Programar" para cargar la tarea en el formulario.</p>' +
-      st.todos.map(function (t) {
-        return '<div class="vt-todo"><div class="vt-todo-info">' +
-          '<b>' + esc(t.cliente || 'Sin cliente') + '</b>' +
-          (t.ubicacion ? '<div>' + esc(t.ubicacion) + '</div>' : '') +
-          (t.trabajo ? '<div>' + esc(t.trabajo) + '</div>' : '') +
-          (t.producto ? '<div>Producto: ' + esc(t.producto) + '</div>' : '') +
-          (t.ventaConcretar > 0 ? '<div>Objetivo: ' + money(t.ventaConcretar) + '</div>' : '') +
-          (t.assigneeName ? '<div>Asignado a: <b>' + esc(t.assigneeName) + '</b></div>' : (t.assigneeId && on[t.assigneeId] ? '<div>Asignado a: <b>' + esc(on[t.assigneeId]) + '</b></div>' : '')) +
-          '</div><div class="vt-todo-acc">' +
-          '<button class="small" data-todo="' + esc(t.id) + '">Programar</button> ' +
-          (esJefe() ? '<button class="ghost small" data-borrar-todo="' + esc(t.id) + '">Borrar</button>' : '') +
-          '</div></div>';
-      }).join('');
+  function ligarTareas(box) {
     box.querySelectorAll('[data-todo]').forEach(function (b) {
       b.onclick = function () { programarTodo(b.getAttribute('data-todo')); };
     });
@@ -609,6 +627,71 @@
         });
       };
     });
+  }
+
+  function pintarTodoPanel() {
+    var cuerpo = $('vtTodoCuerpo');
+    if (!cuerpo) return;
+    var jefe = esJefe(), n = st.todos.length;
+    $('vtTodoSub').textContent = jefe
+      ? 'Tareas pendientes de tu equipo · "Programar" las carga en el formulario'
+      : 'Tus tareas pendientes · "Programar" las carga en el formulario';
+    var badge = $('vtTodoBadge'); if (badge) badge.textContent = n;
+    var asignar = $('vtTodoAsignar'); if (asignar) asignar.classList.toggle('hide', !jefe);
+    var num = $('vtTodoNum');
+    if (num) { num.textContent = n; num.classList.toggle('cero', !n); }
+    if (!n) {
+      cuerpo.innerHTML = '<div class="vt-todo-vacio">No hay tareas pendientes. ' +
+        (jefe ? 'Usa «+ Asignar tarea» para crear una.' : 'Las tareas que te asignen aparecerán aquí.') + '</div>';
+      return;
+    }
+    var on = ownerNames();
+    cuerpo.innerHTML = st.todos.map(function (t) { return htmlTarea(t, on); }).join('');
+    ligarTareas(cuerpo);
+  }
+
+  function cargarTodos() {
+    return api('GET', '/api/todos').then(function (res) {
+      if (res.ok) st.todos = res.data.todos || [];
+      if ($('vtTodoLista')) pintarTodos();
+      pintarTodoPanel();
+    });
+  }
+
+  function abrirTodo() {
+    var html = '<div id="vtTodoLista"></div>' +
+      '<div id="vtTodoFormWrap">' +
+      '<h3 style="margin:16px 0 8px">Asignar nueva tarea</h3>' +
+      '<div class="grid">' +
+      '<div><label>Representante</label><select id="vtTodoAssignee"></select></div>' +
+      '<div><label>Cliente</label><input id="vtTodoCliente"></div>' +
+      '<div><label>Ubicaci&oacute;n</label><input id="vtTodoUbicacion"></div>' +
+      '<div><label>Producto</label><input id="vtTodoProducto"></div>' +
+      '<div style="grid-column:1/-1"><label>Trabajo a realizar</label><textarea id="vtTodoTrabajo"></textarea></div>' +
+      '<div><label>Venta a concretar (US$)</label><input id="vtTodoVenta" type="number" min="0" step="0.01"></div>' +
+      '<div><label>Observaciones</label><input id="vtTodoObs"></div>' +
+      '</div><div id="vtTodoErr" class="vt-err"></div>' +
+      '<button id="vtSaveTodo" style="margin-top:12px">Asignar tarea</button></div>';
+    abrirModal('Tareas ToDo', html, function () {
+      var sel = $('vtTodoAssignee');
+      sel.innerHTML = reps().filter(function (x) { return x.id !== me().id; }).map(function (x) {
+        return '<option value="' + esc(x.id) + '">' + esc(x.name) + ' (' + esc(ROLE_LABEL[x.role] || x.role) + ')</option>';
+      }).join('');
+      $('vtSaveTodo').onclick = guardarTodo;
+      // El representante ve la lista, pero NO puede asignar tareas.
+      var wrap = $('vtTodoFormWrap'); if (wrap) wrap.classList.toggle('hide', !esJefe());
+      pintarTodos();
+      cargarTodos();
+    });
+  }
+
+  function pintarTodos() {
+    var box = $('vtTodoLista'); if (!box) return;
+    if (!st.todos.length) { box.innerHTML = '<p class="muted">No hay tareas pendientes de programar.</p>'; return; }
+    var on = ownerNames();
+    box.innerHTML = '<p class="muted" style="font-size:13px;margin:0 0 10px">Haz click en "Programar" para cargar la tarea en el formulario.</p>' +
+      st.todos.map(function (t) { return htmlTarea(t, on); }).join('');
+    ligarTareas(box);
   }
 
   function guardarTodo() {
@@ -1156,6 +1239,8 @@
     if (host) host.classList.toggle('hide', id !== 'ventas');
     var top = $('vtMetaTop');
     if (top) top.classList.toggle('hide', id !== 'ventas');
+    var todo = $('vtTodoTop');
+    if (todo) todo.classList.toggle('hide', id !== 'ventas');
     st.vista = (id === 'ventas') ? (st.vista || 'calendario') : null;
     actualizarPermisos();
     if (id === 'ventas') refrescarPanel();

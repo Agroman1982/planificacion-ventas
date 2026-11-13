@@ -9,25 +9,36 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <style>
-  :root{ --bg:#1B755E; --card:#fff; --ink:#0F172A; --muted:#334155; --line:#B9C6C2; --brand:#1D4ED8; --brand-d:#1A45B8; --ok:#15803D; --warn:#B45309; --bad:#B91C1C; }
+  :root{
+    /* Fondo claro de pagina + verde oscuro SOLO para cabeceras y acentos:
+       asi el encabezado ya no se confunde con el fondo. */
+    --page:#F1F5F3; --bg:#0F5D4C; --verde:#126B58; --verde-2:#1B755E;
+    --card:#fff; --ink:#0F172A; --muted:#334155; --line:#D9E5DF;
+    --brand:#126B58; --brand-d:#0E5849;
+    --ok:#15803D; --warn:#B45309; --bad:#B91C1C;
+    --shadow:0 4px 16px rgba(15,23,42,.08); --shadow-sm:0 1px 4px rgba(15,23,42,.06);
+  }
   *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
-  .wrap{max-width:920px;margin:0 auto;padding:14px}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--page);background-image:linear-gradient(180deg,#E3F0E9 0,rgba(227,240,233,0) 260px);
+    background-repeat:no-repeat;color:var(--ink);font-size:15px;line-height:1.45}
+  .wrap{max-width:960px;margin:0 auto;padding:18px 14px 44px}
   h1{font-size:20px;margin:0}
   h2{font-size:16px;margin:0 0 10px}
   button{font:inherit;cursor:pointer;border:none;border-radius:10px;padding:10px 14px;background:var(--brand);color:#fff;font-weight:600}
   button:hover{background:var(--brand-d)}
-  button.ghost{background:#E9EDF4;color:var(--ink)}
+  button.ghost{background:#EDF3F0;color:#24403A;border:1px solid #DCE8E1}
+  button.ghost:hover{background:#DDEBE4}
   button.small{padding:6px 10px;font-size:13px;border-radius:8px}
   input,select,textarea{font:inherit;width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
   textarea{resize:vertical;min-height:60px}
   label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px;font-weight:600}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   @media(max-width:560px){.grid{grid-template-columns:1fr}}
   .hide{display:none!important}
   .login{max-width:360px;margin:8vh auto}
-  .topbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  .topbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px;background:linear-gradient(100deg,#fff,#FBFEFC);border:1px solid var(--line);border-left:5px solid var(--bg);border-radius:14px;padding:12px 16px;box-shadow:var(--shadow)}
   .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700;color:#fff}
   .muted{color:var(--muted)}
   .act{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;cursor:pointer}
@@ -46,7 +57,7 @@
   .module-name{font-size:16px;font-weight:700;margin-bottom:4px}
   .module-desc{font-size:13px;color:var(--muted)}
   .tabs{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}
-  .tab{padding:8px 14px;border-radius:10px 10px 0 0;background:#E9EDF4;color:var(--muted);font-weight:600;font-size:13px;cursor:pointer;border:1px solid var(--line);border-bottom:none}
+  .tab{padding:8px 14px;border-radius:10px 10px 0 0;background:#E7EFEA;color:var(--muted);font-weight:600;font-size:13px;cursor:pointer;border:1px solid var(--line);border-bottom:none}
   .tab.active{background:var(--card);color:var(--ink);border-bottom:1px solid var(--card);position:relative;z-index:1}
   .eval-editor{border:1px solid var(--line);border-radius:10px;padding:12px;background:#f8f9fa}
   .eval-list{margin-bottom:4px}
@@ -55,9 +66,9 @@
   .cal-mday-h{text-align:center;font-weight:700;font-size:11px;color:var(--muted);padding:4px 0}
   .cal-mday{background:#f8f9fa;border-radius:8px;min-height:92px;padding:4px;font-size:11px;display:flex;flex-direction:column;gap:2px;overflow:hidden}
   .cal-mday.out{background:#eef2f6;opacity:.55}
-  .cal-mday.today{border:2px solid var(--brand);background:#eef4ff}
+  .cal-mday.today{border:2px solid var(--brand);background:#EBF6F0}
   .cal-mday.weekend{background:#fdf1f5}
-  .cal-mday.today.weekend{background:#eef4ff}
+  .cal-mday.today.weekend{background:#EBF6F0}
   .cal-mday .dnum{font-weight:700;font-size:11px;color:var(--muted)}
   .cal-mday.today .dnum{color:var(--brand)}
   .cal-chip{display:block;padding:2px 6px;border-radius:6px;font-size:10px;color:#fff;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
@@ -87,12 +98,12 @@
   .vt-meta-grid b{font-size:15px}
   .vt-tbl{border-collapse:collapse;width:100%;font-size:13px}
   .vt-tbl th,.vt-tbl td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:middle}
-  .vt-tbl th{background:#F1F5F9;font-size:12px;color:var(--muted)}
+  .vt-tbl th{background:#F1F7F4;font-size:12px;color:var(--muted)}
   .vt-tbl .r,.vt-tbl td.r{text-align:right}
-  .vt-tbl tr.vt-total td{font-weight:700;background:#F1F5F9}
+  .vt-tbl tr.vt-total td{font-weight:700;background:#F1F7F4}
   .vt-tbl input{width:110px;padding:5px 8px;font-size:13px}
   .vt-tbl button{margin:1px 0}
-  .vt-todo{display:flex;gap:10px;justify-content:space-between;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;flex-wrap:wrap}
+  .vt-todo{display:flex;gap:10px;justify-content:space-between;align-items:flex-start;border:1px solid var(--line);border-left:4px solid var(--brand);background:#fff;box-shadow:var(--shadow-sm);border-radius:10px;padding:10px;margin-bottom:8px;flex-wrap:wrap}
   .vt-todo-info{font-size:13px;flex:1;min-width:180px}
   .vt-todo-info b{font-size:14px}
   .vt-todo-info div{color:var(--muted)}
@@ -103,14 +114,14 @@
   .vt-nav{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
   .cal-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
   /* Identidad del representante (solo Planificacion de Ventas) */
-  .vt-who{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:#F1F5FA;border:1px solid var(--line);border-bottom:4px solid var(--bg);border-radius:12px;padding:10px 16px;margin-bottom:14px}
+  .vt-who{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-left:5px solid var(--bg);border-radius:12px;padding:10px 16px;margin-bottom:14px;box-shadow:var(--shadow)}
   .vt-who-name{font-size:20px;font-weight:800;line-height:1.15;color:var(--ink)}
   .vt-who-role{font-size:12px;color:var(--muted);margin-top:2px}
   .vt-who-mod{font-size:12px;font-weight:700;color:var(--bg)}
   /* Calendario: + por dia, marcas de estado y leyenda de representantes */
   .cal-dayhd{display:flex;justify-content:space-between;align-items:center;gap:4px}
   .cal-add{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;color:var(--brand);font-weight:800;font-size:15px;line-height:1;cursor:pointer;user-select:none}
-  .cal-add:hover{background:#dbeafe}
+  .cal-add:hover{background:#DDEFE6}
   .cal-mark{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;min-width:13px;border-radius:50%;font-size:9px;font-weight:800;line-height:1;margin-right:3px;background:#fff;vertical-align:middle}
   .cal-mark.ok{color:#15803D}
   .cal-mark.no{color:#B91C1C}
@@ -124,12 +135,12 @@
   .vt-res-btns button{font-size:13px;padding:8px 12px}
   .vt-res-ok{background:#16A34A!important;color:#fff!important}
   .vt-res-no{background:#DC2626!important;color:#fff!important}
-  .vt-res-activo{outline:3px solid #1D4ED8;outline-offset:2px}
+  .vt-res-activo{outline:3px solid var(--bg);outline-offset:2px}
   .vt-res-aviso{font-size:12px;color:var(--muted);margin-bottom:10px}
   .vt-res-err{font-size:13px;min-height:18px;margin-top:8px;color:var(--bad)}
   /* Panel superior de metas: meta propia + ventas del personal a cargo */
   .vt-mtop{padding:0;overflow:hidden}
-  .vt-mtop-hd{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:linear-gradient(100deg,#126B58,#1B755E);color:#fff;padding:10px 14px}
+  .vt-mtop-hd{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:linear-gradient(110deg,#0B4E3F,#157E63);color:#fff;padding:11px 16px}
   .vt-mtop-hd h2{margin:0;font-size:15px;font-weight:800;color:#fff}
   .vt-mtop-sub{font-size:11px;opacity:.85;margin-top:1px}
   .vt-mtop-hd-r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -137,7 +148,7 @@
   .vt-mtop-year b{min-width:44px;text-align:center;font-size:13px;font-variant-numeric:tabular-nums}
   .vt-mtop-year button,.vt-mtop-toggle{background:rgba(255,255,255,.92);color:#126B58;padding:4px 9px;font-size:12px;border-radius:6px}
   .vt-mtop-year button:hover,.vt-mtop-toggle:hover{background:#fff}
-  .vt-mtop-tabs{display:flex;gap:4px;flex-wrap:wrap;padding:8px 12px;background:#F1F7F4;border-bottom:1px solid var(--line)}
+  .vt-mtop-tabs{display:flex;gap:4px;flex-wrap:wrap;padding:8px 12px;background:#F8FBF9;border-bottom:1px solid var(--line)}
   .vt-mtop-tab{padding:4px 9px;font-size:11px;font-weight:700;border-radius:999px;background:#fff;color:#334155;border:1px solid var(--line)}
   .vt-mtop-tab:hover{background:#E3EFE9}
   .vt-mtop-tab.active{background:var(--bg);border-color:var(--bg);color:#fff}
@@ -145,7 +156,7 @@
   .vt-mtop-body{padding:12px 14px}
   .vt-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
   @media(max-width:560px){.vt-kpis{grid-template-columns:1fr 1fr}}
-  .vt-kpi{border:1px solid #DDE8E2;background:#F6FAF8;border-radius:10px;padding:8px 10px}
+  .vt-kpi{border:1px solid #DDE8E2;background:#fff;box-shadow:var(--shadow-sm);border-radius:10px;padding:9px 11px}
   .vt-kpi span{display:block;font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700}
   .vt-kpi b{display:block;font-size:17px;font-variant-numeric:tabular-nums;margin-top:2px}
   .vt-kpi small,.vt-mtop-nota{display:block;font-size:10px;color:var(--muted);margin-top:2px}
@@ -168,6 +179,18 @@
   .vt-mtop-team tbody tr[data-uid]:hover td{background:#E8F3EE}
   .vt-mtop-mini{height:5px;width:78%;min-width:0;background:#E3ECE8;border-radius:4px;overflow:hidden;margin:3px 0 0 auto}
   .vt-mtop-mini i{display:block;height:100%;background:#1B755E}
+  /* Panel ToDo siempre visible: tareas del representante o del equipo */
+  .vt-todo-top{padding:0;overflow:hidden}
+  .vt-todo-hd{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);background:#F8FBF9}
+  .vt-todo-hd h2{margin:0;font-size:15px;font-weight:800;display:flex;align-items:center;gap:8px}
+  .vt-todo-sub{font-size:11px;color:var(--muted);margin-top:2px}
+  .vt-todo-hd-r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .vt-todo-badge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--bg);color:#fff;font-size:12px;font-weight:800}
+  .vt-todo-cuerpo{padding:12px 16px;max-height:260px;overflow-y:auto;scrollbar-gutter:stable}
+  .vt-todo-cuerpo .vt-todo:last-child{margin-bottom:0}
+  .vt-todo-vacio{font-size:13px;color:var(--muted);padding:6px 2px}
+  .vt-todo-num{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--bg);color:#fff;font-size:11px;font-weight:800;line-height:18px}
+  .vt-todo-num.cero{background:#D7E2DC;color:#4A5D56}
 </style>
 </head>
 <body>
@@ -235,6 +258,9 @@
 
     <!-- Herramientas exclusivas de Planificacion de Ventas -->
     <div id="vtToolbar"></div>
+
+    <!-- ToDo visible para representantes y jefes de equipo -->
+    <div id="vtTodoTop" class="hide"></div>
 
     <!-- Tabs de vistas -->
     <div id="viewTabs" class="tabs"></div>
