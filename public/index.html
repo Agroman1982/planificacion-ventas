@@ -158,9 +158,12 @@
   .meta-box .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.8;font-weight:700}
   .meta-box .val{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:4px}
   .meta-box .sub{font-size:11px;opacity:.7;margin-top:2px}
-  .meta-bar{height:8px;background:rgba(255,255,255,.2);border-radius:4px;margin-top:12px;overflow:hidden}
-  .meta-bar-fill{height:100%;background:#fff;border-radius:4px;transition:width .5s ease}
-  .meta-bar-fill.over{background:#FFD700}
+  .meta-bar{position:relative;height:8px;background:rgba(255,255,255,.2);border-radius:4px;margin-top:12px;overflow:hidden}
+  /* Misma escala que la app unificada; el velo se oscurece por el panel verde. */
+  .vt-bar-scale{position:absolute;left:0;right:0;top:0;bottom:0;
+    background:linear-gradient(90deg,#DC2626 0%,#DC2626 47%,#F59E0B 55%,#F59E0B 82%,#16A34A 90%,#16A34A 100%)}
+  .vt-bar-veil{position:absolute;top:0;bottom:0;background:rgba(6,45,36,.66)}
+  .vt-bar-mark{position:absolute;top:0;bottom:0;width:2px;background:#fff;border-radius:1px}
   .meta-team{margin-top:14px}
   .meta-team table{width:100%;border-collapse:collapse;font-size:13px}
   .meta-team th,.meta-team td{padding:6px 8px;text-align:left;border-bottom:1px solid rgba(255,255,255,.15)}
@@ -572,6 +575,17 @@
   function $(id){return document.getElementById(id);}
   function esc(s){return (s==null?'':String(s));}
   function money(n){ n=Number(n)||0; return 'US$ '+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  // Escala de avance rojo 0-50% / ambar 51-85% / verde 86-100% con
+  // transiciones degradadas: la escala completa siempre se ve atenuada y
+  // el tramo logrado queda vivo, con una marca en el porcentaje actual.
+  function barraMeta(pct){
+    var p=Math.max(0,Math.min(100,Number(pct)||0)), q=p.toFixed(1);
+    return '<div class="meta-bar" title="'+p.toFixed(0)+'% de la meta">'+
+      '<div class="vt-bar-scale"></div>'+
+      '<div class="vt-bar-veil" style="left:'+q+'%;width:'+(100-p).toFixed(1)+'%"></div>'+
+      '<div class="vt-bar-mark" style="left:'+(p>=100?99.8:p).toFixed(1)+'%"></div>'+
+      '</div>';
+  }
   function estadoBadge(e){
     var c='b-plan'; if(e==='En curso')c='b-curso'; else if(e==='Realizado')c='b-ok'; else if(e==='No realizado')c='b-no';
     return '<span class="badge '+c+'">'+esc(e)+'</span>';
@@ -1156,7 +1170,7 @@
       html += '<div class="meta-box"><div class="lbl">Falta</div><div class="val">' + money(falta) + '</div><div class="sub">' + (goalAmount>0 ? (overBar?'¡Meta cumplida!' : 'para llegar a la meta') : 'sin meta asignada') + '</div></div>';
       html += '<div class="meta-box"><div class="lbl">% Cumplimiento</div><div class="val" style="' + (overBar?'color:#FFD700':'') + '">' + cumple.toFixed(0) + '%</div></div>';
       html += '</div>';
-      html += '<div class="meta-bar"><div class="meta-bar-fill' + (overBar?' over':'') + '" style="width:' + Math.min(100, cumple) + '%"></div></div>';
+      html += barraMeta(cumple);
       if(veVarios() && adminOwner) html += '<div style="margin-top:10px;font-size:13px;opacity:.8">Vendedor: <b>' + esc(targetName) + '</b></div>';
       $('metaPanel').innerHTML = html;
       $('metaPanel').classList.remove('hide');
@@ -1181,7 +1195,7 @@
       var totPct = totGoal > 0 ? (totReal/totGoal*100) : 0;
       html += '<tr style="font-weight:800;background:rgba(255,255,255,.1)"><td>Total</td><td class="r">' + money(totGoal) + '</td><td class="r">' + money(totReal) + '</td><td class="r">' + money(totFalta) + '</td><td class="r">' + totPct.toFixed(0) + '%</td></tr>';
       html += '</table></div>';
-      html += '<div class="meta-bar"><div class="meta-bar-fill' + (totPct>=100?' over':'') + '" style="width:' + Math.min(100, totPct) + '%"></div></div>';
+      html += barraMeta(totPct);
       $('metaPanel').innerHTML = html;
       $('metaPanel').classList.remove('hide');
     } else {
@@ -1211,7 +1225,7 @@
       html += '<div class="meta-box"><div class="lbl">Falta</div><div class="val">' + money(falta) + '</div><div class="sub">' + (goalAmount>0 ? (overBar?'¡Meta cumplida!' : 'para llegar a la meta') : 'sin meta asignada') + '</div></div>';
       html += '<div class="meta-box"><div class="lbl">% Cumplimiento</div><div class="val" style="' + (overBar?'color:#FFD700':'') + '">' + cumple.toFixed(0) + '%</div></div>';
       html += '</div>';
-      html += '<div class="meta-bar"><div class="meta-bar-fill' + (overBar?' over':'') + '" style="width:' + Math.min(100, cumple) + '%"></div></div>';
+      html += barraMeta(cumple);
       if(veVarios() && adminOwner) html += '<div style="margin-top:10px;font-size:13px;opacity:.8">Vendedor: <b>' + esc(targetName) + '</b></div>';
       $('metaPanel').innerHTML = html;
       $('metaPanel').classList.remove('hide');
@@ -1237,7 +1251,7 @@
       var totPct = totGoal > 0 ? (totReal/totGoal*100) : 0;
       html += '<tr style="font-weight:800;background:rgba(255,255,255,.1)"><td>Total</td><td class="r">' + money(totGoal) + '</td><td class="r">' + money(totReal) + '</td><td class="r">' + money(totFalta) + '</td><td class="r">' + totPct.toFixed(0) + '%</td></tr>';
       html += '</table></div>';
-      html += '<div class="meta-bar"><div class="meta-bar-fill' + (totPct>=100?' over':'') + '" style="width:' + Math.min(100, totPct) + '%"></div></div>';
+      html += barraMeta(totPct);
       $('metaPanel').innerHTML = html;
       $('metaPanel').classList.remove('hide');
     } else {

@@ -164,9 +164,16 @@
   .vt-kpi span{display:block;font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700}
   .vt-kpi b{display:block;font-size:17px;font-variant-numeric:tabular-nums;margin-top:2px}
   .vt-kpi small,.vt-mtop-nota{display:block;font-size:10px;color:var(--muted);margin-top:2px}
-  .vt-bar{height:8px;border-radius:6px;background:#E3ECE8;overflow:hidden;margin-top:10px}
-  .vt-bar i{display:block;height:100%;border-radius:6px;background:#1B755E;transition:width .4s ease}
-  .vt-bar i.over{background:#B45309}
+  /* Escala de avance: rojo 0-50%, ambar 51-85%, verde 86-100%, con
+     transiciones degradadas suaves (no bloques). La escala completa siempre
+     esta visible atenuada; el tramo logrado queda vivo y una marca indica el %. */
+  .vt-bar,.vt-mtop-mini{position:relative;overflow:hidden;background:#E3ECE8;border-radius:6px}
+  .vt-bar{height:8px;margin-top:10px}
+  .vt-mtop-mini{height:5px;width:78%;min-width:0;border-radius:4px;margin:3px 0 0 auto}
+  .vt-bar-scale{position:absolute;left:0;right:0;top:0;bottom:0;
+    background:linear-gradient(90deg,#DC2626 0%,#DC2626 47%,#F59E0B 55%,#F59E0B 82%,#16A34A 90%,#16A34A 100%)}
+  .vt-bar-veil{position:absolute;top:0;bottom:0;background:rgba(255,255,255,.74)}
+  .vt-bar-mark{position:absolute;top:0;bottom:0;width:2px;background:#0F172A;border-radius:1px}
   .vt-mtop-nota{margin-top:6px;font-size:11px}
   .vt-mtop-team{margin-top:14px;overflow:auto;max-height:290px;scrollbar-gutter:stable}
   .vt-mtop-team table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px}
@@ -181,8 +188,6 @@
   .vt-mtop-team tr.vt-mtop-total td{font-weight:800;background:#E8F3EE;border-top:2px solid #B9C6C2}
   .vt-mtop-team tbody tr[data-uid]{cursor:pointer}
   .vt-mtop-team tbody tr[data-uid]:hover td{background:#E8F3EE}
-  .vt-mtop-mini{height:5px;width:78%;min-width:0;background:#E3ECE8;border-radius:4px;overflow:hidden;margin:3px 0 0 auto}
-  .vt-mtop-mini i{display:block;height:100%;background:#1B755E}
   /* Panel ToDo siempre visible: tareas del representante o del equipo */
   .vt-todo-top{padding:0;overflow:hidden}
   .vt-todo-hd{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);background:#F8FBF9}

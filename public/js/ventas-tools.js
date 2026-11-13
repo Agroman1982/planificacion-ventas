@@ -283,9 +283,16 @@
     function avance(r, g) { return g > 0 ? Math.min(100, r / g * 100) : 0; }
     // Sin meta asignada no se inventa un 0%: se muestra una raya.
     function porcentaje(r, g) { return g > 0 ? pct(r, g) : '—'; }
-    function barra(r, g) {
-      var over = g > 0 && r >= g;
-      return '<div class="vt-bar"><i class="' + (over ? 'over' : '') + '" style="width:' + avance(r, g).toFixed(1) + '%"></i></div>';
+    // Escala de semaforo compartida por la barra principal y las mini barras
+    // de cada representante: las tres zonas siempre visibles, tramo logrado
+    // intenso y una marca en el porcentaje alcanzado.
+    function barra(r, g, cls) {
+      var p = avance(r, g), q = p.toFixed(1);
+      return '<div class="' + (cls || 'vt-bar') + '" title="' + p.toFixed(0) + '% de la meta">' +
+        '<div class="vt-bar-scale"></div>' +
+        '<div class="vt-bar-veil" style="left:' + q + '%;width:' + (100 - p).toFixed(1) + '%"></div>' +
+        '<div class="vt-bar-mark" style="left:' + (p >= 100 ? 99.8 : p).toFixed(1) + '%"></div>' +
+        '</div>';
     }
 
     // Solo vendedores (retail / kam / promotor): ni coordinadores, ni
@@ -328,7 +335,7 @@
           '<td class="r">' + money(g) + '</td>' +
           '<td class="r">' + money(r) + '</td>' +
           '<td class="r">' + money(Math.max(0, g - r)) + '</td>' +
-          '<td class="r">' + porcentaje(r, g) + '<div class="vt-mtop-mini"><i style="width:' + avance(r, g).toFixed(1) + '%"></i></div></td>' +
+          '<td class="r">' + porcentaje(r, g) + barra(r, g, 'vt-mtop-mini') + '</td>' +
           '</tr>';
       }).join('');
       html += '<div class="vt-mtop-team"><table><thead><tr>' +
@@ -337,7 +344,7 @@
         '<tr class="vt-mtop-total"><td>Total (' + lista.length + ' vendedores)</td><td class="r">' + money(tMeta) + '</td>' +
         '<td class="r">' + money(tReal) + '</td><td class="r">' + money(Math.max(0, tMeta - tReal)) + '</td>' +
         '<td class="r">' + porcentaje(tReal, tMeta) + '</td></tr>' +
-        '</tbody></table></div>' + barra(tReal, tMeta) +
+        '</tbody></table></div>' +
         '<div class="vt-mtop-nota">Avance del equipo. ' + (sinMeta ? sinMeta + ' sin meta asignada en este periodo. ' : '') +
         'Click en un vendedor para filtrar la vista.</div>';
     } else {

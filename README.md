@@ -52,12 +52,21 @@ En `/` y `/app`, arriba de la barra de herramientas de Ventas se muestra:
   coordinador o administrador** —roles que *no* tienen meta de ventas propia—
   los KPIs resumen a todo su equipo («Meta del equipo»), en lugar de mostrar
   «Mi meta US$ 0,00 / Sin meta asignada».
-- Tabla **Vendedor / Meta / Realizado / Falta / %** con total del equipo y barra
-  de avance. **Sólo aparecen vendedores** (`retail`, `kam`, `promotor`): los
-  jefes no se listan ni se cuentan en el Total. Un clic en un vendedor aplica
-  el filtro a Calendario, Lista y Resumen.
+- Tabla **Vendedor / Meta / Realizado / Falta / %** con total del equipo y una
+  mini barra por representante. **Sólo aparecen vendedores** (`retail`, `kam`,
+  `promotor`): los jefes no se listan ni se cuentan en el Total. Un clic en un
+  vendedor aplica el filtro a Calendario, Lista y Resumen.
 - Pestañas **TOTAL** (suma anual) + Ene…Dic, selector de año y botón para plegar
   el panel (la preferencia se recuerda en el navegador).
+
+### Escala de avance (una sola barra)
+Hay **una única** barra, bajo los 4 KPIs; se eliminó la barra repetida que iba
+debajo de la tabla. La escala completa (0–100%) siempre está visible con
+**rojo 0–50% / ámbar 51–85% / verde 86–100%** y transiciones degradadas suaves
+para que no se vean bloques. El tramo ya logrado se muestra con los colores
+intensos, el resto va atenuado por un velo, y una marca vertical señala el
+porcentaje actual. Las mini barras de cada representante y las barras de metas
+de `/index.html` usan exactamente el mismo componente y la misma escala.
 
 El alcance lo fija el servidor: `/api/users`, `/api/goals` y las filas visibles ya
 aplican `idsVisiblesPara()`, de modo que **cada supervisor ve únicamente las ventas
