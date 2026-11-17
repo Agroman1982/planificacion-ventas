@@ -611,6 +611,7 @@
   function htmlTarea(t, on) {
     return '<div class="vt-todo"><div class="vt-todo-info">' +
       '<b>' + esc(t.cliente || 'Sin cliente') + '</b>' +
+      (t.tipoActividad ? '<div class="vt-todo-tipo">' + esc(t.tipoActividad) + '</div>' : '') +
       (t.ubicacion ? '<div>' + esc(t.ubicacion) + '</div>' : '') +
       (t.trabajo ? '<div>' + esc(t.trabajo) + '</div>' : '') +
       (t.producto ? '<div>Producto: ' + esc(t.producto) + '</div>' : '') +
@@ -665,6 +666,8 @@
     });
   }
 
+    var TIPOS_ACTIVIDAD = ['Charla técnica', 'Cierre de venta', 'Cobranza', 'Día de campo', 'Evaluación de ensayo', 'Negociación de venta', 'Otros', 'Presentación de la línea Rainbow', 'Promoción en mostrador', 'Recojo de documentación', 'Recojo mercadería', 'Trabajo de gabinete', 'Transporte de mercadería', 'Validación producto en campo', 'Visita agricultores'];
+
   function abrirTodo() {
     var html = '<div id="vtTodoLista"></div>' +
       '<div id="vtTodoFormWrap">' +
@@ -673,8 +676,10 @@
       '<div><label>Representante</label><select id="vtTodoAssignee"></select></div>' +
       '<div><label>Cliente</label><input id="vtTodoCliente"></div>' +
       '<div><label>Ubicaci&oacute;n</label><input id="vtTodoUbicacion"></div>' +
+      '<div><label>Tipo de Actividad</label><select id="vtTodoTipo"><option value="">— Seleccionar —</option>' +
+      TIPOS_ACTIVIDAD.map(function (t) { return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('') + '</select></div>' +
       '<div><label>Producto</label><input id="vtTodoProducto"></div>' +
-      '<div style="grid-column:1/-1"><label>Trabajo a realizar</label><textarea id="vtTodoTrabajo"></textarea></div>' +
+      '<div><label style="grid-column:1/-1">Descripcion de la actividad</label><textarea id="vtTodoTrabajo"></textarea></div>' +
       '<div><label>Venta a concretar (US$)</label><input id="vtTodoVenta" type="number" min="0" step="0.01"></div>' +
       '<div><label>Observaciones</label><input id="vtTodoObs"></div>' +
       '</div><div id="vtTodoErr" class="vt-err"></div>' +
@@ -705,13 +710,13 @@
     error('vtTodoErr', '');
     var body = {
       assigneeId: $('vtTodoAssignee').value, cliente: val('vtTodoCliente'), ubicacion: val('vtTodoUbicacion'),
-      producto: val('vtTodoProducto'), trabajo: val('vtTodoTrabajo'), ventaConcretar: val('vtTodoVenta'),
+      tipoActividad: val('vtTodoTipo'), producto: val('vtTodoProducto'), trabajo: val('vtTodoTrabajo'), ventaConcretar: val('vtTodoVenta'),
       observaciones: val('vtTodoObs')
     };
     if (!body.assigneeId) { error('vtTodoErr', 'Selecciona un representante.'); return; }
     api('POST', '/api/todos', body).then(function (res) {
       if (!res.ok) { error('vtTodoErr', res.data.error || 'No se pudo asignar'); return; }
-      ['vtTodoCliente', 'vtTodoUbicacion', 'vtTodoProducto', 'vtTodoTrabajo', 'vtTodoVenta', 'vtTodoObs'].forEach(function (id) { setVal(id, ''); });
+      ['vtTodoCliente', 'vtTodoUbicacion', 'vtTodoTipo', 'vtTodoProducto', 'vtTodoTrabajo', 'vtTodoVenta', 'vtTodoObs'].forEach(function (id) { setVal(id, ''); });
       error('vtTodoErr', 'Tarea asignada.', true);
       cargarTodos();
     });
@@ -726,6 +731,7 @@
     RB.render();
     setVal('field_cliente', t.cliente || '');
     setVal('field_ubicacion', t.ubicacion || '');
+    setVal('field_tipoActividad', t.tipoActividad || '');
     setVal('field_producto', t.producto || '');
     setVal('field_trabajo', t.trabajo || '');
     setVal('field_ventaConcretar', t.ventaConcretar || '');
@@ -1208,16 +1214,16 @@
     var det = lista.slice().sort(function (a, b) { return String(a.dia || '').localeCompare(String(b.dia || '')); }).map(function (r) {
       var p = Number(r.ventaConcretar) || 0, x = Number(r.ventaRealizada) || 0;
       tP += p; tR += x;
-      return (varios ? [nombre(r)] : []).concat([r.cliente || '—', r.dia || '', r.semana || '', r.ubicacion || '', r.producto || '', r.trabajo || '', r.estado || '', p, x, frac(x, p), r.resultado || '', r.observaciones || '']);
+      return (varios ? [nombre(r)] : []).concat([r.cliente || '—', r.dia || '', r.semana || '', r.ubicacion || '', r.tipoActividad || '', r.producto || '', r.trabajo || '', r.estado || '', p, x, frac(x, p), r.resultado || '', r.observaciones || '']);
     });
     var base = [{ label: 'Cliente', width: 34, type: 'text' }, { label: 'Fecha', width: 14, type: 'date' },
       { label: 'Semana', width: 20, type: 'text' }, { label: 'Ubicación', width: 22, type: 'text' },
-      { label: 'Producto', width: 28, type: 'text' }, { label: 'Trabajo', width: 40, type: 'text' },
+      { label: 'Tipo de Actividad', width: 26, type: 'text' }, { label: 'Producto', width: 28, type: 'text' }, { label: 'Descripcion de la actividad', width: 40, type: 'text' },
       { label: 'Estado', width: 16, type: 'text' }, { label: 'Monto programado (US$)', width: 24, type: 'money' },
       { label: 'Monto ejecutado (US$)', width: 24, type: 'money' }, { label: '% Cumplimiento', width: 18, type: 'pct' },
       { label: 'Resultado / Motivo', width: 40, type: 'text' }, { label: 'Observaciones', width: 36, type: 'text' }];
     var colsDet = (varios ? [{ label: 'Vendedor', width: 24, type: 'text' }] : []).concat(base);
-    var totalDet = (varios ? [''] : []).concat(['TOTAL', '', '', '', '', '', '', tP, tR, frac(tR, tP), '', '']);
+    var totalDet = (varios ? [''] : []).concat(['TOTAL', '', '', '', '', '', '', '', tP, tR, frac(tR, tP), '', '']);
 
     var grupos = {};
     lista.forEach(function (r) {

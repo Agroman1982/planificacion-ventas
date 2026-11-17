@@ -1266,6 +1266,7 @@ const server = http.createServer(async (req, res) => {
           id: t.id, assigneeId: t.assigneeId, assigneeName: u ? u.name : '—',
           createdBy: t.createdBy, createdByName: c ? c.name : '—',
           cliente: t.cliente || '', producto: t.producto || '', trabajo: t.trabajo || '',
+          tipoActividad: t.tipoActividad || '',
           ubicacion: t.ubicacion || '', ventaConcretar: t.ventaConcretar || 0,
           observaciones: t.observaciones || '', createdAt: t.createdAt
         };
@@ -1295,6 +1296,7 @@ const server = http.createServer(async (req, res) => {
         cliente: (body.cliente || '').trim().slice(0, 200),
         producto: (body.producto || '').trim().slice(0, 200),
         trabajo: (body.trabajo || '').trim().slice(0, 500),
+        tipoActividad: (body.tipoActividad || '').trim().slice(0, 80),
         ubicacion: (body.ubicacion || '').trim().slice(0, 200),
         ventaConcretar: Math.max(0, Number(body.ventaConcretar) || 0),
         observaciones: (body.observaciones || '').trim().slice(0, 500),

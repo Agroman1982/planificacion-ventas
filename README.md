@@ -38,9 +38,16 @@ Como administrador (botón **Gestionar vendedores**) puedes:
 Esto cubre "agregar, retirar o renombrar vendedores" sin tocar código.
 
 ## Campos de cada actividad
-Representante (automático), Semana, Día, Ubicación, Cliente, Trabajo a realizar,
+Representante (automático), Semana, Día, Ubicación, Cliente, **Tipo de Actividad**,
+Producto a promocionar, **Descripcion de la actividad** (antes «Trabajo a realizar»),
 Venta a concretar (US$), Estado (En curso / Realizado / No realizado),
-Venta realizada (US$), Observaciones. La **Semana** se calcula sola desde la fecha
+Venta realizada (US$), Observaciones. El **Tipo de Actividad** es una lista
+desplegable en orden alfabético con 15 opciones (Charla técnica, Cierre de venta,
+Cobranza, Día de campo, Evaluación de ensayo, Negociación de venta, Otros,
+Presentación de la línea Rainbow, Promoción en mostrador, Recojo de documentación,
+Recojo mercadería, Trabajo de gabinete, Transporte de mercadería, Validación producto
+en campo, Visita agricultores); también está disponible al asignar tareas ToDo.
+La **Semana** se calcula sola desde la fecha
 y no es editable; el **Estado** no aparece en el formulario (todo registro nace
 «En curso») y se resuelve en el detalle junto con si la venta se concretó, el
 motivo cuando no se logró y el monto real de la venta.

@@ -37,20 +37,30 @@
         "order": 4
       },
       {
+        "name": "tipoActividad",
+        "label": "Tipo de Actividad",
+        "type": "select",
+        "required": true,
+        "options": ["Charla técnica", "Cierre de venta", "Cobranza", "Día de campo", "Evaluación de ensayo", "Negociación de venta", "Otros", "Presentación de la línea Rainbow", "Promoción en mostrador", "Recojo de documentación", "Recojo mercadería", "Trabajo de gabinete", "Transporte de mercadería", "Validación producto en campo", "Visita agricultores"],
+        "default": "Negociación de venta",
+        "width": 180,
+        "order": 5
+      },
+      {
         "name": "producto",
         "label": "Producto a promocionar",
         "type": "text",
         "required": false,
         "width": 200,
-        "order": 5
+        "order": 6
       },
       {
         "name": "trabajo",
-        "label": "Trabajo a realizar",
+        "label": "Descripcion de la actividad",
         "type": "textarea",
         "required": true,
         "width": 250,
-        "order": 6
+        "order": 7
       },
       {
         "name": "estado",
@@ -61,7 +71,7 @@
         "default": "En curso",
         "hiddenInForm": true,
         "width": 120,
-        "order": 7
+        "order": 8
       },
       {
         "name": "observaciones",
@@ -69,7 +79,7 @@
         "type": "textarea",
         "required": false,
         "width": 200,
-        "order": 8
+        "order": 9
       },
       {
         "name": "resultado",
@@ -77,7 +87,7 @@
         "type": "textarea",
         "required": false,
         "width": 250,
-        "order": 9
+        "order": 10
       },
       {
         "name": "ventaConcretar",
@@ -86,7 +96,7 @@
         "required": false,
         "default": 0,
         "width": 150,
-        "order": 10
+        "order": 11
       },
       {
         "name": "ventaRealizada",
@@ -95,7 +105,7 @@
         "required": false,
         "default": 0,
         "width": 150,
-        "order": 11
+        "order": 12
       },
       {
         "name": "ventaLograda",
@@ -106,7 +116,7 @@
         "default": "Pendiente",
         "hiddenInForm": true,
         "width": 180,
-        "order": 12
+        "order": 13
       }
     ],
     "states": {
@@ -129,7 +139,7 @@
         "icon": "📋",
         "filters": ["semana", "estado", "owner", "fecha"],
         "sortBy": "dia",
-        "columns": ["dia", "semana", "ubicacion", "cliente", "producto", "trabajo", "estado", "ventaConcretar", "ventaRealizada"]
+        "columns": ["dia", "semana", "ubicacion", "cliente", "tipoActividad", "producto", "trabajo", "estado", "ventaConcretar", "ventaRealizada"]
       },
       "calendario": {
         "enabled": true,
@@ -137,7 +147,7 @@
         "icon": "📅",
         "colorBy": "estado",
         "showWeekends": true,
-        "dayFields": ["cliente", "trabajo", "estado"]
+        "dayFields": ["cliente", "tipoActividad", "trabajo", "estado"]
       },
       "resumen": {
         "enabled": true,

@@ -304,11 +304,15 @@
           <div id="clienteHint" class="ac-hint hide"></div>
         </div>
         <div>
+          <label>Tipo de Actividad</label>
+          <select id="iTipoActividad"><option value="">— Seleccionar —</option><option>Charla técnica</option><option>Cierre de venta</option><option>Cobranza</option><option>Día de campo</option><option>Evaluación de ensayo</option><option>Negociación de venta</option><option>Otros</option><option>Presentación de la línea Rainbow</option><option>Promoción en mostrador</option><option>Recojo de documentación</option><option>Recojo mercadería</option><option>Trabajo de gabinete</option><option>Transporte de mercadería</option><option>Validación producto en campo</option><option>Visita agricultores</option></select>
+        </div>
+        <div>
           <label>Producto a promocionar</label>
           <input id="iProducto" placeholder="Ej: Bioinsumo X, Fungicida Y">
         </div>
         <div style="grid-column:1/-1">
-          <label>Trabajo a realizar</label>
+          <label>Descripcion de la actividad</label>
           <textarea id="iTrabajo" placeholder="Qué se va a hacer en la visita"></textarea>
         </div>
         <div>
@@ -521,6 +525,10 @@
           <input id="todoUbicacion" placeholder="Zona / ruta / ciudad">
         </div>
         <div>
+          <label>Tipo de Actividad</label>
+          <select id="todoTipoActividad"><option value="">— Seleccionar —</option><option>Charla técnica</option><option>Cierre de venta</option><option>Cobranza</option><option>Día de campo</option><option>Evaluación de ensayo</option><option>Negociación de venta</option><option>Otros</option><option>Presentación de la línea Rainbow</option><option>Promoción en mostrador</option><option>Recojo de documentación</option><option>Recojo mercadería</option><option>Trabajo de gabinete</option><option>Transporte de mercadería</option><option>Validación producto en campo</option><option>Visita agricultores</option></select>
+        </div>
+        <div>
           <label>Producto a promocionar</label>
           <input id="todoProducto" placeholder="Ej: Bioinsumo X">
         </div>
@@ -529,7 +537,7 @@
           <input id="todoVenta" type="number" step="0.01" min="0" placeholder="0.00">
         </div>
         <div style="grid-column:1/-1">
-          <label>Trabajo a realizar</label>
+          <label>Descripcion de la actividad</label>
           <textarea id="todoTrabajo" placeholder="Qué se va a hacer en la visita"></textarea>
         </div>
         <div style="grid-column:1/-1">
@@ -1479,9 +1487,10 @@
     meta.appendChild(kv('Día', r.dia));
     meta.appendChild(kv('Ubicación', r.ubicacion));
     meta.appendChild(kv('Cliente', r.cliente));
+    if(r.tipoActividad) meta.appendChild(kv('Tipo de Actividad', r.tipoActividad));
     meta.appendChild(kv('Producto a promocionar', r.producto));
     meta.appendChild(kv('Venta a concretar', money(r.ventaConcretar)));
-    meta.appendChild(kv('Trabajo a realizar', r.trabajo));
+    meta.appendChild(kv('Descripcion de la actividad', r.trabajo));
     meta.appendChild(kv('Venta realizada', money(r.ventaRealizada)));
     var obsK=kv('Observaciones', r.observaciones); obsK.style.gridColumn='1/-1'; meta.appendChild(obsK);
     if(r.resultado){ var resK=kv('Resultado / Motivo', r.resultado); resK.style.gridColumn='1/-1'; meta.appendChild(resK); }
@@ -1516,7 +1525,7 @@
   $('saveBtn').onclick=function(){
     var body={
       semana:$('iSemana').value.trim(), dia:$('iDia').value, ubicacion:$('iUbicacion').value.trim(),
-      cliente:$('iCliente').value.trim(), producto:$('iProducto').value.trim(), trabajo:$('iTrabajo').value.trim(),
+      cliente:$('iCliente').value.trim(), tipoActividad:$('iTipoActividad').value, producto:$('iProducto').value.trim(), trabajo:$('iTrabajo').value.trim(),
       ventaConcretar:$('iConcretar').value, estado:$('iEstado').value,
       ventaRealizada:$('iRealizada').value, observaciones:$('iObs').value.trim(),
       resultado:$('iResultado').value.trim(), ventaLograda:$('iVentaLograda').value||'Pendiente'
@@ -1543,7 +1552,7 @@
     editingId=r.id; $('formTitle').textContent='Editando actividad';
     $('cancelEdit').classList.remove('hide');
     $('iSemana').value=r.semana||''; $('iDia').value=r.dia||''; $('iUbicacion').value=r.ubicacion||'';
-    $('iCliente').value=r.cliente||''; $('iProducto').value=r.producto||''; $('iTrabajo').value=r.trabajo||'';
+    $('iCliente').value=r.cliente||''; $('iTipoActividad').value=r.tipoActividad||''; $('iProducto').value=r.producto||''; $('iTrabajo').value=r.trabajo||'';
     $('iConcretar').value=r.ventaConcretar||''; $('iEstado').value=(r.estado&&r.estado!=='Planificado')?r.estado:'En curso';
     $('iVentaLograda').value=r.ventaLograda||'Pendiente';
     $('iRealizada').value=r.ventaRealizada||''; $('iObs').value=r.observaciones||'';
@@ -1554,7 +1563,7 @@
   }
   function resetForm(){
     editingId=null; $('formTitle').textContent='Nueva actividad'; $('cancelEdit').classList.add('hide');
-    ['iSemana','iDia','iUbicacion','iCliente','iProducto','iTrabajo','iConcretar','iRealizada','iObs','iResultado'].forEach(function(id){$(id).value='';});
+    ['iSemana','iDia','iUbicacion','iCliente','iTipoActividad','iProducto','iTrabajo','iConcretar','iRealizada','iObs','iResultado'].forEach(function(id){$(id).value='';});
     $('iEstado').value='En curso'; $('iVentaLograda').value='Pendiente';
     if(jefeDeEquipo()) llenarSelectRep(adminOwner);
     actualizarHints();
@@ -1721,8 +1730,9 @@
       {label:'Semana',width:22,type:'text'},
       {label:'Ubicación',width:22,type:'text'},
       {label:'Cliente',width:34,type:'text'},
+      {label:'Tipo de Actividad',width:26,type:'text'},
       {label:'Producto a promocionar',width:28,type:'text'},
-      {label:'Trabajo a realizar',width:40,type:'text'},
+      {label:'Descripcion de la actividad',width:40,type:'text'},
       {label:'Estado',width:16,type:'text'},
       {label:'Monto programado (US$)',width:24,type:'money'},
       {label:'Monto ejecutado (US$)',width:24,type:'money'},
@@ -1741,12 +1751,12 @@
       tP+=p; tR+=rl;
       var base = conVendedor ? [ownerNames[r.ownerId]||'—'] : [];
       return base.concat([r.dia||'', r.semana||'', r.ubicacion||'', r.cliente||'',
-        r.producto||'', r.trabajo||'', r.estado||'', p, rl, fracCumpl(rl,p),
+        r.tipoActividad||'', r.producto||'', r.trabajo||'', r.estado||'', p, rl, fracCumpl(rl,p),
         r.resultado||'', r.observaciones||'']);
     });
     var i = conVendedor ? 4 : 3; // columna "Cliente" (donde va la etiqueta TOTAL)
     var total = cols.map(function(){ return ''; });
-    total[i]='TOTAL'; total[i+4]=tP; total[i+5]=tR; total[i+6]=fracCumpl(tR,tP);
+    total[i]='TOTAL'; total[i+5]=tP; total[i+6]=tR; total[i+7]=fracCumpl(tR,tP);
     RainbowXLSX.descargar('programacion_ventas_'+fechaHoy()+'.xlsx',
       [{name:'Programación',cols:cols,rows:data,total:total}]);
   };
@@ -1871,8 +1881,9 @@
     html+=detailKV('Día', r.dia);
     html+=detailKV('Ubicación', r.ubicacion);
     html+=detailKV('Cliente', r.cliente + (r.clientePotencial?'  (cliente potencial)':''));
+    if(r.tipoActividad) html+=detailKV('Tipo de Actividad', r.tipoActividad);
     html+=detailKV('Producto a promocionar', r.producto);
-    html+=detailKV('Trabajo a realizar', r.trabajo);
+    html+=detailKV('Descripcion de la actividad', r.trabajo);
     html+=detailKV('Venta a concretar', money(r.ventaConcretar));
     html+=detailKV('Venta realizada', money(r.ventaRealizada));
     html+=detailKV('Observaciones', r.observaciones);
@@ -1936,7 +1947,7 @@
     var ventaRealizada = marcarEstadoNuevo==='Realizado' ? Number($('marcarVentaRealizada').value) : (r.ventaRealizada||0);
     var body={
       semana:r.semana||'', dia:r.dia||'', ubicacion:r.ubicacion||'', cliente:r.cliente||'',
-      producto:r.producto||'', trabajo:r.trabajo||'', ventaConcretar:r.ventaConcretar||0,
+      producto:r.producto||'', trabajo:r.trabajo||'', tipoActividad:r.tipoActividad||'', ventaConcretar:r.ventaConcretar||0,
       estado:marcarEstadoNuevo, ventaRealizada:ventaRealizada, observaciones:r.observaciones||'',
       resultado:$('marcarTexto').value.trim(), ventaLograda:r.ventaLograda||'Pendiente'
     };
@@ -1950,7 +1961,7 @@
   function marcarEstado(r, estado){
     var body={
       semana:r.semana||'', dia:r.dia||'', ubicacion:r.ubicacion||'', cliente:r.cliente||'',
-      producto:r.producto||'', trabajo:r.trabajo||'', ventaConcretar:r.ventaConcretar||0,
+      producto:r.producto||'', trabajo:r.trabajo||'', tipoActividad:r.tipoActividad||'', ventaConcretar:r.ventaConcretar||0,
       estado:estado, ventaRealizada:r.ventaRealizada||0, observaciones:r.observaciones||'',
       resultado:r.resultado||'', ventaLograda:r.ventaLograda||'Pendiente'
     };
@@ -2162,6 +2173,7 @@
       html += '<div class="todo-item">';
       html += '<div class="ti-info">';
       html += '<div class="ti-cliente">' + esc(t.cliente || 'Sin cliente') + '</div>';
+      if(t.tipoActividad) html += '<div class="ti-meta">Tipo: ' + esc(t.tipoActividad) + '</div>';
       if(t.ubicacion) html += '<div class="ti-meta">' + esc(t.ubicacion) + '</div>';
       if(t.producto) html += '<div class="ti-meta">Producto: ' + esc(t.producto) + '</div>';
       if(t.trabajo) html += '<div class="ti-meta">' + esc(t.trabajo) + '</div>';
@@ -2190,6 +2202,7 @@
     resetForm();
     $('iCliente').value = t.cliente || '';
     $('iUbicacion').value = t.ubicacion || '';
+    $('iTipoActividad').value = t.tipoActividad || '';
     $('iProducto').value = t.producto || '';
     $('iTrabajo').value = t.trabajo || '';
     $('iConcretar').value = t.ventaConcretar || '';
@@ -2237,7 +2250,7 @@
     // Si el jefe filtró a un vendedor, pre-seleccionarlo
     if(jefeDeEquipo() && adminOwner) sel.value = adminOwner;
     // Limpiar campos
-    $('todoCliente').value = ''; $('todoUbicacion').value = ''; $('todoProducto').value = '';
+    $('todoCliente').value = ''; $('todoUbicacion').value = ''; $('todoTipoActividad').value = ''; $('todoProducto').value = '';
     $('todoTrabajo').value = ''; $('todoVenta').value = '';     $('todoObs').value = '';
     $('todoErr').textContent = '';
     actualizarHints();
@@ -2252,6 +2265,7 @@
       assigneeId: assigneeId,
       cliente: $('todoCliente').value.trim(),
       ubicacion: $('todoUbicacion').value.trim(),
+      tipoActividad: $('todoTipoActividad').value,
       producto: $('todoProducto').value.trim(),
       trabajo: $('todoTrabajo').value.trim(),
       ventaConcretar: $('todoVenta').value,
@@ -2272,7 +2286,7 @@
   $('saveBtn').onclick = function(){
     var body={
       semana:$('iSemana').value.trim(), dia:$('iDia').value, ubicacion:$('iUbicacion').value.trim(),
-      cliente:$('iCliente').value.trim(), producto:$('iProducto').value.trim(), trabajo:$('iTrabajo').value.trim(),
+      cliente:$('iCliente').value.trim(), tipoActividad:$('iTipoActividad').value, producto:$('iProducto').value.trim(), trabajo:$('iTrabajo').value.trim(),
       ventaConcretar:$('iConcretar').value, estado:$('iEstado').value,
       ventaRealizada:$('iRealizada').value, observaciones:$('iObs').value.trim(),
       resultado:$('iResultado').value.trim(), ventaLograda:$('iVentaLograda').value||'Pendiente'
