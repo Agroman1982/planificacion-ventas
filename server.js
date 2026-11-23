@@ -1589,9 +1589,14 @@ const server = http.createServer(async (req, res) => {
       const ids = idsVisiblesPara(me);
       let lista = incentivos.slice();
       if (campanaId) lista = lista.filter(i => i.campanaId === campanaId);
-      // Promotor: ve las ventas donde él recibe una parte, además de las suyas.
-      if (me.role === 'promotor') {
-        lista = lista.filter(i => i.promotorId === me.id || i.ownerId === me.id);
+      // El representante (retail/KAM) SOLO ve sus propias ventas, aunque tenga
+      // gente a cargo: incentivos no usa el alcance de equipo de idsVisiblesPara.
+      // El promotor ve las suyas + las que le generan incentivo (fue asignado
+      // por el supervisor a ese vendedor). Jefes/coordinador ven su alcance.
+      if (me.role === 'retail' || me.role === 'kam') {
+        lista = lista.filter(i => i.ownerId === me.id);
+      } else if (me.role === 'promotor') {
+        lista = lista.filter(i => i.ownerId === me.id || i.promotorId === me.id);
       } else if (ids !== null) {
         lista = lista.filter(i => ids.indexOf(i.ownerId) >= 0 || ids.indexOf(i.promotorId) >= 0);
       }

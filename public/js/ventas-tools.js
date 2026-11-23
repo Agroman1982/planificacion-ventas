@@ -1057,14 +1057,17 @@
         html += '<div class="vt-inc-mipart">Tu reparto: <b>' + esc(part.pctVendedor) + '%</b> vendedor' +
           (part.promotorNombre ? ' · <b>' + esc(part.pctPromotor) + '%</b> promotor (' + esc(part.promotorNombre) + ')' : '') + '</div>';
       }
-      // El reparto de TODOS los participantes siempre visible: así el
-      // representante (y el coordinador) puede contrastar sus condiciones.
-      html += '<div class="vt-inc-prod-hd">Reparto de la campaña</div><div class="vt-inc-prods">' +
-        (camp.participantes || []).map(function (p) {
-          return '<div class="vt-inc-prod"><b>' + esc(p.vendedorNombre || '—') + '</b>' +
-            '<span>' + esc(p.pctVendedor) + '% vendedor' +
-            (p.promotorNombre ? ' · ' + esc(p.pctPromotor) + '% ' + esc(p.promotorNombre) : '') + '</span></div>';
-        }).join('') + '</div>';
+      // El reparto de los DEMAS participantes es información interna: solo lo
+      // ven supervisor/admin y coordinador (quienes liquidan). El
+      // representante ve exclusivamente SU reparto, nunca el de sus compañeros.
+      if (esJefe || esCoordi) {
+        html += '<div class="vt-inc-prod-hd">Reparto de la campaña</div><div class="vt-inc-prods">' +
+          (camp.participantes || []).map(function (p) {
+            return '<div class="vt-inc-prod"><b>' + esc(p.vendedorNombre || '—') + '</b>' +
+              '<span>' + esc(p.pctVendedor) + '% vendedor' +
+              (p.promotorNombre ? ' · ' + esc(p.pctPromotor) + '% ' + esc(p.promotorNombre) : '') + '</span></div>';
+          }).join('') + '</div>';
+      }
       html += '</div>';
 
       if (esJefe) {
@@ -1146,8 +1149,9 @@
     }
     html += '</div>';
 
-    // Resumen por persona (para liquidar). Visible para jefe y coordinador.
-    if ((esJefe || esCoordi || nombres.length === 1) && nombres.length) {
+    // Resumen por persona (para liquidar): solo jefe y coordinador. El
+    // representante ve su propia tabla de ventas, no un resumen agregado.
+    if ((esJefe || esCoordi) && nombres.length) {
       html += '<div class="card" style="margin-top:14px"><h3 style="margin:0 0 10px;font-size:15px">Resumen por representante</h3>' +
         '<div style="overflow-x:auto"><table class="vt-inc-tbl"><thead><tr>' +
         '<th>Representante</th><th>Ventas</th><th>Utilidad</th><th>Inc. vendedor</th><th>Inc. promotor</th>' +
