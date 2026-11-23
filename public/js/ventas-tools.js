@@ -34,6 +34,8 @@
     // contador de peticiones (descarta respuestas viejas al cambiar de mes).
     pMes: 0, pAnio: 0, pAbierto: true, pGoals: {}, pReq: 0,
     todos: [], pendingTodoId: null,
+    // Incentivos: campañas, ventas cargadas y permisos que reporta el servidor.
+    incCampanas: [], incVentas: [], incCampanaId: '', incPuedeAprobar: false, incPuedeExportar: false,
     vista: 'calendario', calY: 0, calM: 0,
     catalogo: { clientes: [], editable: false, total: 0 }, catTrabajo: [],
     fSemana: '', fEstado: '', fOwner: '',
@@ -107,6 +109,10 @@
   }
 
   function esJefe() { var u = me(); return !!(u && (u.role === 'admin' || u.role === 'supervisor' || u.role === 'coordinador' || st.canManageTeam || st.tieneEquipo)); }
+  // Incentivos: solo supervisor/admin configura, aprueba y paga. El
+  // coordinador consulta y exporta para liquidar; el representante carga.
+  function esJefeInc() { var u = me(); return !!(u && (u.role === 'admin' || u.role === 'supervisor')); }
+  function esCoord() { var u = me(); return !!(u && u.role === 'coordinador'); }
   function veVarios() { return esJefe(); }
   function esVendedor(u) { return !!u && ROLES_VENDEDOR.indexOf(u.role) >= 0; }
   function reps() { return st.usuarios.filter(esVendedor); }
@@ -127,6 +133,7 @@
       '    <button class="ghost small" data-vt="lista">Lista</button>' +
       '    <button class="ghost small" data-vt="resumen">Resumen</button>' +
       '    <span style="flex:1"></span>' +
+      '    <button class="ghost small" data-vt="incentivos" id="vtIncentivos">Incentivos</button>' +
       '    <button class="ghost small" data-vt="metas" id="vtMetas">Metas</button>' +
       '    <button class="ghost small" data-vt="todo" id="vtTodo">ToDo <span id="vtTodoNum" class="vt-todo-num cero">0</span></button>' +
       '    <button class="ghost small" data-vt="clientes" id="vtClientes">Clientes</button>' +
@@ -373,7 +380,7 @@
     var jefe = esJefe();
     // ToDo es visible para TODOS: cada usuario debe ver sus tareas asignadas.
     // El alta de tareas sigue siendo exclusiva de jefes de equipo.
-    [['vtMetas', jefe], ['vtClientes', u.role === 'admin' || u.role === 'supervisor'], ['vtUsuarios', u.role === 'admin']].forEach(function (p) {
+    [['vtIncentivos', true], ['vtMetas', jefe], ['vtClientes', u.role === 'admin' || u.role === 'supervisor'], ['vtUsuarios', u.role === 'admin']].forEach(function (p) {
       var el = $(p[0]); if (el) el.classList.toggle('hide', !p[1]);
     });
     var asignar = $('vtTodoAsignar'); if (asignar) asignar.classList.toggle('hide', !jefe);
@@ -408,10 +415,21 @@
   }
 
   function accion(nombre) {
-    if (nombre === 'lista' || nombre === 'calendario' || nombre === 'resumen') {
+    if (nombre === 'lista' || nombre === 'calendario' || nombre === 'resumen' || nombre === 'incentivos') {
       st.vista = nombre === 'lista' ? null : nombre;
       actualizarPermisos();
-      RB.render();
+      if (nombre === 'incentivos') {
+        var meta = $('vtMetaTop'), todo = $('vtTodoTop');
+        if (meta) meta.classList.add('hide');
+        if (todo) todo.classList.add('hide');
+        cargarIncentivos(function () { RB.render(); });
+      } else {
+        var meta2 = $('vtMetaTop'), todo2 = $('vtTodoTop');
+        if (meta2) meta2.classList.remove('hide');
+        if (todo2) todo2.classList.remove('hide');
+        refrescarPanel();
+        RB.render();
+      }
       return;
     }
     if (nombre === 'metas') abrirMetas();
@@ -955,6 +973,425 @@
   }
 
   // ------------------------------------------------------------------
+  // INCENTIVOS: campañas, condiciones, carga de ventas, aprobación y pago
+  // ------------------------------------------------------------------
+  function cargarIncentivos(cb) {
+    var u = me();
+    if (!u || ['admin', 'supervisor', 'coordinador', 'retail', 'kam', 'promotor'].indexOf(u.role) < 0) {
+      if (cb) cb(); return;
+    }
+    api('GET', '/api/campanas').then(function (rc) {
+      if (rc.ok) {
+        st.incCampanas = rc.data.campanas || [];
+        if (!st.incCampanas.some(function (c) { return c.id === st.incCampanaId; })) {
+          st.incCampanaId = st.incCampanas.length ? st.incCampanas[0].id : '';
+        }
+      }
+      return api('GET', '/api/incentivos' + (st.incCampanaId ? '?campanaId=' + encodeURIComponent(st.incCampanaId) : ''));
+    }).then(function (rv) {
+      if (rv && rv.ok) {
+        st.incVentas = rv.data.ventas || [];
+        st.incPuedeAprobar = !!rv.data.puedeAprobar;
+        st.incPuedeExportar = !!rv.data.puedeExportar;
+      }
+      if (cb) cb();
+    });
+  }
+
+  function campanaActual() {
+    return st.incCampanas.filter(function (c) { return c.id === st.incCampanaId; })[0] || null;
+  }
+
+  function renderIncentivos(container) {
+    var u = me();
+    if (!u) return;
+    var camp = campanaActual();
+    var esJefe = esJefeInc(), esCoordi = esCoord();
+    var puedeCargar = esVendedor(u) || esJefe;
+
+    var html = '<div class="card" style="margin-bottom:14px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">' +
+      '<div><h2 style="margin:0;font-size:17px">Campañas de incentivo</h2>' +
+      '<div class="muted" style="font-size:12px;margin-top:3px">' +
+      (esJefe ? 'Configura campañas, aprueba ventas y registra pagos' :
+        esCoordi ? 'Consulta y exporta para liquidar incentivos' :
+          'Registra tus ventas y consulta tus incentivos') + '</div></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+      (st.incPuedeExportar ? '<button class="ghost small" id="vtIncExport">Exportar Excel</button>' : '') +
+      (esJefe ? '<button class="ghost small" id="vtIncNueva">+ Nueva campaña</button>' : '') +
+      '</div></div>';
+
+    if (!st.incCampanas.length) {
+      html += '<div class="muted" style="padding:24px 4px;text-align:center">' +
+        'No hay campañas activas. ' + (esJefe ? 'Crea una para empezar.' : 'Espera a que el supervisor publique una.') + '</div></div>';
+      container.innerHTML = html;
+      if ($('vtIncNueva')) $('vtIncNueva').onclick = function () { abrirCampana(); };
+      return;
+    }
+
+    html += '<div style="margin-top:14px"><label style="font-size:12px">Campaña</label>' +
+      '<select id="vtIncSelCamp" style="max-width:420px">' + st.incCampanas.map(function (c) {
+        return '<option value="' + esc(c.id) + '"' + (c.id === st.incCampanaId ? ' selected' : '') + '>' +
+          esc(c.nombre) + ' · ' + esc(c.fechaInicio) + ' a ' + esc(c.fechaFin) + (c.activa ? '' : ' (cerrada)') + '</option>';
+      }).join('') + '</select></div>';
+
+    if (camp) {
+      // CONDICIONES: visible para TODOS los participantes, tal como pidió el usuario.
+      html += '<div class="vt-inc-cond" style="margin-top:14px">' +
+        '<div class="vt-inc-cond-hd">Condiciones de la campaña</div>' +
+        '<div class="vt-inc-cond-grid">' +
+        '<div><span class="k">Vigencia</span><span class="v">' + esc(camp.fechaInicio) + ' a ' + esc(camp.fechaFin) + '</span></div>' +
+        '<div><span class="k">Estado</span><span class="v">' + (camp.activa ? 'Activa' : 'Cerrada') + '</span></div>' +
+        '</div>';
+      if (camp.condiciones) {
+        html += '<div class="vt-inc-cond-text">' + esc(camp.condiciones).replace(/\n/g, '<br>') + '</div>';
+      }
+      html += '<div class="vt-inc-prod-hd">Productos en campaña</div>' +
+        '<div class="vt-inc-prods">' + (camp.productos || []).map(function (p) {
+          return '<div class="vt-inc-prod"><b>' + esc(p.nombre) + '</b>' +
+            '<span>Base ' + money(p.precioBase) + ' / ' + esc(p.unidad) + '</span></div>';
+        }).join('') + '</div>';
+
+      var part = (camp.participantes || []).filter(function (p) { return p.vendedorId === u.id; })[0];
+      if (part) {
+        html += '<div class="vt-inc-mipart">Tu reparto: <b>' + esc(part.pctVendedor) + '%</b> vendedor' +
+          (part.promotorNombre ? ' · <b>' + esc(part.pctPromotor) + '%</b> promotor (' + esc(part.promotorNombre) + ')' : '') + '</div>';
+      }
+      // El reparto de TODOS los participantes siempre visible: así el
+      // representante (y el coordinador) puede contrastar sus condiciones.
+      html += '<div class="vt-inc-prod-hd">Reparto de la campaña</div><div class="vt-inc-prods">' +
+        (camp.participantes || []).map(function (p) {
+          return '<div class="vt-inc-prod"><b>' + esc(p.vendedorNombre || '—') + '</b>' +
+            '<span>' + esc(p.pctVendedor) + '% vendedor' +
+            (p.promotorNombre ? ' · ' + esc(p.pctPromotor) + '% ' + esc(p.promotorNombre) : '') + '</span></div>';
+        }).join('') + '</div>';
+      html += '</div>';
+
+      if (esJefe) {
+        html += '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+          '<button class="ghost small" id="vtIncEditar">Editar campaña</button>' +
+          (camp.activa ? '<button class="ghost small" id="vtIncCerrar">Cerrar campaña</button>' :
+            '<button class="ghost small" id="vtIncAbrir">Reabrir campaña</button>') + '</div>';
+      }
+    }
+
+    if (puedeCargar && camp && camp.activa) {
+      html += '<div class="card" style="margin-top:14px">' +
+        '<h3 style="margin:0 0 10px;font-size:15px">Registrar venta</h3>' +
+        '<div class="grid">' +
+        (esJefe ? '<div><label>Representante</label><select id="vtIncOwner">' +
+          (camp.participantes || []).map(function (p) {
+            return '<option value="' + esc(p.vendedorId) + '">' + esc(p.vendedorNombre || '—') + '</option>';
+          }).join('') + '</select></div>' : '') +
+        '<div><label>Cliente</label><div class="ac-wrap"><input id="vtIncCliente" autocomplete="off" placeholder="Nombre del cliente">' +
+        '<div id="vtIncClienteMenu" class="ac-menu hide"></div></div></div>' +
+        '<div><label>Fecha de la venta</label><input type="date" id="vtIncFecha" value="' + (camp ? camp.fechaInicio : '') + '"></div>' +
+        '<div><label>Producto</label><select id="vtIncProducto">' + (camp.productos || []).map(function (p) {
+          return '<option value="' + esc(p.nombre) + '">' + esc(p.nombre) + ' (' + esc(p.unidad) + ')</option>';
+        }).join('') + '</select></div>' +
+        '<div><label>Cantidad (<span id="vtIncUni">' + esc((camp.productos[0] || {}).unidad || 'kg') + '</span>)</label>' +
+        '<input type="number" id="vtIncCant" min="0" step="0.01" placeholder="0"></div>' +
+        '<div><label>Precio base (US$/' + esc((camp.productos[0] || {}).unidad || 'kg') + ')</label>' +
+        '<input id="vtIncBase" readonly value="' + Number(camp.productos[0].precioBase || 0).toFixed(2) + '" style="background:#F1F5F3"></div>' +
+        '<div><label>Precio facturado sin IGV (US$/' + esc((camp.productos[0] || {}).unidad || 'kg') + ')</label>' +
+        '<input type="number" id="vtIncFact" min="0" step="0.01" placeholder="0.00"></div>' +
+        '<div style="grid-column:1/-1"><label>Observaciones</label><input id="vtIncObs" placeholder="Opcional"></div>' +
+        '</div><div id="vtIncErr" class="vt-err"></div>' +
+        '<div id="vtIncPreview" class="vt-inc-preview hide"></div>' +
+        '<button id="vtIncGuardar" style="margin-top:10px">Guardar venta (pendiente de aprobación)</button>' +
+        '</div>';
+    }
+
+    // Resumen de la campaña: totales por persona y estado de pago.
+    var selector = esJefe ? '' : '';
+    var porPersona = {};
+    st.incVentas.forEach(function (v) {
+      var k = v.ownerId;
+      if (!porPersona[k]) porPersona[k] = { nombre: v.ownerNombre || '—', n: 0, utilidad: 0, ven: 0, pro: 0, aprobadas: 0, pagadas: 0, pendiente: 0 };
+      var g = porPersona[k]; g.n++; g.utilidad += Number(v.utilidad) || 0;
+      g.ven += Number(v.incentivoVendedor) || 0; g.pro += Number(v.incentivoPromotor) || 0;
+      if (v.estado === 'Aprobado') g.aprobadas++;
+      if (v.pagado) g.pagadas++;
+      else if (v.estado === 'Aprobado') g.pendiente += Number(v.incentivoVendedor) || 0;
+    });
+    var nombres = Object.keys(porPersona).sort(function (a, b) { return porPersona[a].nombre.localeCompare(porPersona[b].nombre, 'es'); });
+
+    html += '<div class="card" style="margin-top:14px"><h3 style="margin:0 0 10px;font-size:15px">Detalle de ventas</h3>';
+    if (!st.incVentas.length) {
+      html += '<div class="muted">No hay ventas registradas en esta campaña.</div>';
+    } else {
+      html += '<div style="overflow-x:auto"><table class="vt-inc-tbl"><thead><tr>' +
+        '<th>Fecha</th><th>Vendedor</th><th>Promotor</th><th>Cliente</th><th>Producto</th>' +
+        '<th>Cant.</th><th>Base</th><th>Facturado</th><th>Utilidad</th><th>Inc. vendedor</th>' +
+        '<th>Inc. promotor</th><th>Estado</th><th>Pago</th>' + (st.incPuedeAprobar || st.incVentas.some(function (v) { return v.ownerId === u.id; }) ? '<th></th>' : '') +
+        '</tr></thead><tbody>';
+      st.incVentas.forEach(function (v) {
+        var puedeBorrar = st.incPuedeAprobar || (v.ownerId === u.id && v.estado === 'Pendiente');
+        html += '<tr>' +
+          '<td>' + esc(v.fecha) + '</td><td>' + esc(v.ownerNombre || '—') + '</td>' +
+          '<td>' + esc(v.promotorNombre || '—') + '</td><td>' + esc(v.cliente) + '</td>' +
+          '<td>' + esc(v.producto) + '</td><td>' + Number(v.cantidad || 0).toLocaleString('en-US') + ' ' + esc(v.unidad || '') + '</td>' +
+          '<td>' + money(v.precioBase) + '</td><td>' + money(v.precioFacturado) + '</td>' +
+          '<td>' + money(v.utilidad) + '</td><td><b>' + money(v.incentivoVendedor) + '</b></td>' +
+          '<td><b>' + money(v.incentivoPromotor) + '</b></td>' +
+          '<td><span class="vt-inc-estado ' + esc(v.estado.toLowerCase()) + '">' + esc(v.estado) + '</span></td>' +
+          '<td>' + (v.pagado ? esc(v.fechaPago) : '—') + '</td>' +
+          '<td>' + (st.incPuedeAprobar && v.estado !== 'Aprobado' && !v.pagado ?
+            '<button class="small" data-inc-apr="' + esc(v.id) + '">Aprobar</button> ' +
+            '<button class="ghost small" data-inc-rech="' + esc(v.id) + '">Rechazar</button> ' : '') +
+            (puedeBorrar && !v.pagado ? '<button class="ghost small" data-inc-del="' + esc(v.id) + '">Borrar</button>' : '') + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div>';
+
+    // Resumen por persona (para liquidar). Visible para jefe y coordinador.
+    if ((esJefe || esCoordi || nombres.length === 1) && nombres.length) {
+      html += '<div class="card" style="margin-top:14px"><h3 style="margin:0 0 10px;font-size:15px">Resumen por representante</h3>' +
+        '<div style="overflow-x:auto"><table class="vt-inc-tbl"><thead><tr>' +
+        '<th>Representante</th><th>Ventas</th><th>Utilidad</th><th>Inc. vendedor</th><th>Inc. promotor</th>' +
+        '<th>Aprobadas</th><th>Pagadas</th><th>Pendiente de pago</th>' + (esJefe ? '<th></th>' : '') + '</tr></thead><tbody>';
+      nombres.forEach(function (k) {
+        var g = porPersona[k];
+        html += '<tr><td>' + esc(g.nombre) + '</td><td>' + g.n + '</td><td>' + money(g.utilidad) + '</td>' +
+          '<td>' + money(g.ven) + '</td><td>' + money(g.pro) + '</td><td>' + g.aprobadas + '</td><td>' + g.pagadas + '</td>' +
+          '<td>' + money(g.pendiente) + '</td>' +
+          (esJefe ? '<td><button class="small" data-inc-pagar="' + esc(k) + '">Registrar pago</button></td>' : '') + '</tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    container.innerHTML = html;
+
+    // --- Eventos ---
+    $('vtIncSelCamp').onchange = function () {
+      st.incCampanaId = this.value; st.incVentas = [];
+      cargarIncentivos(function () { renderIncentivos(container); });
+    };
+    if ($('vtIncNueva')) $('vtIncNueva').onclick = function () { abrirCampana(); };
+    if ($('vtIncEditar')) $('vtIncEditar').onclick = function () { abrirCampana(camp); };
+    if ($('vtIncCerrar')) $('vtIncCerrar').onclick = function () { cambiarActiva(camp, false, container); };
+    if ($('vtIncAbrir')) $('vtIncAbrir').onclick = function () { cambiarActiva(camp, true, container); };
+    if ($('vtIncExport')) $('vtIncExport').onclick = function () { exportarIncentivos(camp); };
+
+    if (puedeCargar && camp && camp.activa) {
+      if (window.RainbowClientes) RainbowClientes.adjuntar($('vtIncCliente'));
+      var producto = $('vtIncProducto');
+      function syncProducto() {
+        var p = (camp.productos || []).filter(function (x) { return x.nombre === producto.value; })[0];
+        if (!p) return;
+        setVal('vtIncBase', Number(p.precioBase || 0).toFixed(2));
+        setVal('vtIncUni', p.unidad);
+        previewInc();
+      }
+      producto.onchange = syncProducto;
+      ['vtIncCant', 'vtIncFact'].forEach(function (id) { $(id).oninput = previewInc; });
+      $('vtIncGuardar').onclick = function () { guardarVentaInc(container); };
+      syncProducto();
+    }
+
+    container.querySelectorAll('[data-inc-apr],[data-inc-rech],[data-inc-del],[data-inc-pagar]').forEach(function (b) {
+      b.onclick = function () {
+        if (b.dataset.incApr) cambiarEstado(b.dataset.incApr, 'aprobar', container);
+        else if (b.dataset.incRech) cambiarEstado(b.dataset.incRech, 'rechazar', container);
+        else if (b.dataset.incDel) borrarVenta(b.dataset.incDel, container);
+        else if (b.dataset.incPagar) abrirPago(b.dataset.incPagar, container);
+      };
+    });
+  }
+
+  function previewInc() {
+    var box = $('vtIncPreview'); if (!box) return;
+    var cant = Number(val('vtIncCant')) || 0, fact = Number(val('vtIncFact')) || 0, base = Number(val('vtIncBase')) || 0;
+    if (!cant || !fact) { box.classList.add('hide'); return; }
+    var util = Math.max(0, Math.round((fact - base) * 100) / 100) * cant;
+    box.classList.remove('hide');
+    box.innerHTML = 'Utilidad estimada: <b>' + money(util) + '</b> · El incentivo exacto se calcula al guardar con el reparto de la campaña.';
+  }
+
+  function guardarVentaInc(container) {
+    var camp = campanaActual(); if (!camp) return;
+    var cuerpo = {
+      campanaId: camp.id, cliente: val('vtIncCliente'), fecha: val('vtIncFecha'),
+      producto: val('vtIncProducto'), cantidad: val('vtIncCant'), precioFacturado: val('vtIncFact'),
+      observaciones: val('vtIncObs')
+    };
+    if ($('vtIncOwner')) cuerpo.ownerId = $('vtIncOwner').value;
+    if (!cuerpo.cliente || !cuerpo.fecha || !cuerpo.cantidad || !cuerpo.precioFacturado) {
+      error('vtIncErr', 'Completa cliente, fecha, cantidad y precio facturado.'); return;
+    }
+    error('vtIncErr', 'Guardando...', true);
+    api('POST', '/api/incentivos', cuerpo).then(function (r) {
+      if (!r.ok) { error('vtIncErr', (r.data && r.data.error) || 'No se pudo guardar'); return; }
+      toast('Venta registrada. Queda pendiente de aprobación.');
+      cargarIncentivos(function () { renderIncentivos(container); });
+    });
+  }
+
+  function cambiarEstado(id, accion, container) {
+    api('PUT', '/api/incentivos/' + encodeURIComponent(id) + '/' + accion, {}).then(function (r) {
+      if (!r.ok) { toast((r.data && r.data.error) || 'No se pudo actualizar'); return; }
+      toast(accion === 'aprobar' ? 'Venta aprobada' : 'Venta rechazada');
+      cargarIncentivos(function () { renderIncentivos(container); });
+    });
+  }
+
+  function borrarVenta(id, container) {
+    if (!window.confirm('¿Borrar esta venta? Esta acción no se puede deshacer.')) return;
+    api('DELETE', '/api/incentivos/' + encodeURIComponent(id)).then(function (r) {
+      if (!r.ok) { toast((r.data && r.data.error) || 'No se pudo borrar'); return; }
+      toast('Venta borrada');
+      cargarIncentivos(function () { renderIncentivos(container); });
+    });
+  }
+
+  function cambiarActiva(camp, activa, container) {
+    api('PUT', '/api/campanas/' + encodeURIComponent(camp.id), { activa: activa }).then(function (r) {
+      if (!r.ok) { toast((r.data && r.data.error) || 'No se pudo actualizar'); return; }
+      toast(activa ? 'Campaña reabierta' : 'Campaña cerrada');
+      cargarIncentivos(function () { renderIncentivos(container); });
+    });
+  }
+
+  function abrirCampana(camp) {
+    var esNueva = !camp;
+    var vendedores = st.usuarios.filter(function (x) { return esVendedor(x); });
+    var promotores = st.usuarios.filter(function (x) { return x.role === 'promotor'; });
+    var parts = camp && camp.participantes ? camp.participantes : [];
+    var html = '<div class="grid">' +
+      '<div><label>Nombre de la campaña</label><input id="vtCampNom" value="' + esc(camp ? camp.nombre : '') + '"></div>' +
+      '<div><label>Fecha de inicio</label><input type="date" id="vtCampIni" value="' + esc(camp ? camp.fechaInicio : hoy()) + '"></div>' +
+      '<div><label>Fecha de fin</label><input type="date" id="vtCampFin" value="' + esc(camp ? camp.fechaFin : hoy()) + '"></div>' +
+      '<div style="grid-column:1/-1"><label>Condiciones (visibles para los representantes)</label>' +
+      '<textarea id="vtCampCond" rows="4" placeholder="Ej. El incentivo se calcula sobre la diferencia entre precio facturado y precio base. Se paga quincenal.">' + esc(camp ? camp.condiciones : '') + '</textarea></div>' +
+      '</div><h3 style="margin:16px 0 8px;font-size:14px">Productos y precios base</h3>' +
+      '<div id="vtCampProds"></div><button class="ghost small" id="vtCampAddProd">+ Producto</button>' +
+      '<h3 style="margin:16px 0 8px;font-size:14px">Representantes y reparto</h3>' +
+      '<div id="vtCampParts"></div><button class="ghost small" id="vtCampAddPart">+ Representante</button>' +
+      '<div id="vtCampErr" class="vt-err"></div>' +
+      '<button id="vtCampSave" style="margin-top:12px">' + (esNueva ? 'Crear campaña' : 'Guardar cambios') + '</button>';
+    abrirModal(esNueva ? 'Nueva campaña de incentivo' : 'Editar campaña', html, function () {
+      function filaProd(p) {
+        var d = document.createElement('div');
+        d.className = 'vt-camp-row';
+        d.innerHTML = '<input class="vt-p-nom" placeholder="Producto" value="' + esc(p ? p.nombre : '') + '">' +
+          '<select class="vt-p-uni"><option value="kg"' + (p && p.unidad === 'kg' ? ' selected' : '') + '>kg</option>' +
+          '<option value="L"' + (!p || p.unidad === 'L' ? ' selected' : '') + '>L</option></select>' +
+          '<input class="vt-p-base" type="number" min="0" step="0.01" placeholder="Precio base" value="' + (p ? Number(p.precioBase || 0) : '') + '">' +
+          '<button class="ghost small vt-p-del">×</button>';
+        d.querySelector('.vt-p-del').onclick = function () { d.remove(); };
+        $('vtCampProds').appendChild(d);
+      }
+      (camp && camp.productos ? camp.productos : [{}]).forEach(filaProd);
+      $('vtCampAddProd').onclick = function () { filaProd({}); };
+
+      function filaPart(p) {
+        var d = document.createElement('div');
+        d.className = 'vt-camp-row';
+        d.innerHTML = '<select class="vt-q-ven"><option value="">Representante</option>' +
+          vendedores.map(function (x) {
+            return '<option value="' + esc(x.id) + '"' + (p && p.vendedorId === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>';
+          }).join('') + '</select>' +
+          '<select class="vt-q-pro"><option value="">Sin promotor</option>' +
+          promotores.map(function (x) {
+            return '<option value="' + esc(x.id) + '"' + (p && p.promotorId === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>';
+          }).join('') + '</select>' +
+          '<input class="vt-q-pct" type="number" min="0" max="100" step="1" title="% vendedor" value="' + (p ? p.pctVendedor : 50) + '">' +
+          '<button class="ghost small vt-q-del">×</button>';
+        d.querySelector('.vt-q-del').onclick = function () { d.remove(); };
+        $('vtCampParts').appendChild(d);
+      }
+      (parts.length ? parts : [{}]).forEach(filaPart);
+      $('vtCampAddPart').onclick = function () { filaPart({}); };
+
+      $('vtCampSave').onclick = function () {
+        var productos = Array.prototype.map.call($('vtCampProds').children, function (d) {
+          return { nombre: d.querySelector('.vt-p-nom').value.trim(), unidad: d.querySelector('.vt-p-uni').value,
+            precioBase: d.querySelector('.vt-p-base').value };
+        }).filter(function (p) { return p.nombre; });
+        var participantes = Array.prototype.map.call($('vtCampParts').children, function (d) {
+          return { vendedorId: d.querySelector('.vt-q-ven').value, promotorId: d.querySelector('.vt-q-pro').value,
+            pctVendedor: d.querySelector('.vt-q-pct').value };
+        }).filter(function (p) { return p.vendedorId; });
+        var body = { nombre: val('vtCampNom'), fechaInicio: val('vtCampIni'), fechaFin: val('vtCampFin'),
+          condiciones: val('vtCampCond'), productos: productos, participantes: participantes };
+        if (!body.nombre || !body.fechaInicio || !body.fechaFin || !productos.length || !participantes.length) {
+          error('vtCampErr', 'Completa nombre, fechas, al menos un producto y un representante.'); return;
+        }
+        var ruta = esNueva ? '/api/campanas' : '/api/campanas/' + encodeURIComponent(camp.id);
+        api(esNueva ? 'POST' : 'PUT', ruta, body).then(function (r) {
+          if (!r.ok) { error('vtCampErr', (r.data && r.data.error) || 'No se pudo guardar'); return; }
+          cerrarModal(); toast(esNueva ? 'Campaña creada' : 'Campaña actualizada');
+          if (esNueva && r.data && r.data.campana) st.incCampanaId = r.data.campana.id;
+          cargarIncentivos(function () { renderIncentivos($('viewContainer')); });
+        });
+      };
+    });
+  }
+
+  function abrirPago(ownerId, container) {
+    var camp = campanaActual(); if (!camp) return;
+    var nombre = (st.incVentas.filter(function (v) { return v.ownerId === ownerId; })[0] || {}).ownerNombre || ownerId;
+    var html = '<p>Se marcarán como <b>pagadas</b> todas las ventas aprobadas de <b>' + esc(nombre) + '</b> pendientes de pago en esta campaña.</p>' +
+      '<div><label>Fecha de bonificación / pago</label><input type="date" id="vtPagoFecha" value="' + hoy() + '"></div>' +
+      '<div id="vtPagoErr" class="vt-err"></div><button id="vtPagoSave" style="margin-top:12px">Registrar pago</button>';
+    abrirModal('Registrar pago', html, function () {
+      $('vtPagoSave').onclick = function () {
+        api('POST', '/api/incentivos/pagar', { campanaId: camp.id, ownerId: ownerId, fechaPago: val('vtPagoFecha') }).then(function (r) {
+          if (!r.ok) { error('vtPagoErr', (r.data && r.data.error) || 'No se pudo registrar'); return; }
+          cerrarModal(); toast((r.data.pagadas || 0) + ' ventas marcadas como pagadas');
+          cargarIncentivos(function () { renderIncentivos(container); });
+        });
+      };
+    });
+  }
+
+  function exportarIncentivos(camp) {
+    if (typeof RainbowXLSX === 'undefined') { toast('No se pudo cargar el generador de Excel.'); return; }
+    var colsDet = [
+      { label: 'Campaña', width: 28, type: 'text' }, { label: 'Fecha', width: 14, type: 'date' },
+      { label: 'Vendedor', width: 24, type: 'text' }, { label: 'Promotor', width: 24, type: 'text' },
+      { label: 'Cliente', width: 32, type: 'text' }, { label: 'Producto', width: 24, type: 'text' },
+      { label: 'Cantidad', width: 12, type: 'number' }, { label: 'Unidad', width: 10, type: 'text' },
+      { label: 'Precio base', width: 16, type: 'money' }, { label: 'Precio facturado', width: 18, type: 'money' },
+      { label: 'Utilidad', width: 16, type: 'money' }, { label: 'Inc. vendedor', width: 16, type: 'money' },
+      { label: 'Inc. promotor', width: 16, type: 'money' }, { label: 'Estado', width: 14, type: 'text' },
+      { label: 'Fecha de pago', width: 16, type: 'text' }, { label: 'Observaciones', width: 30, type: 'text' }
+    ];
+    var det = st.incVentas.map(function (v) {
+      return [v.campanaNombre || '', v.fecha || '', v.ownerNombre || '', v.promotorNombre || '',
+        v.cliente || '', v.producto || '', Number(v.cantidad) || 0, v.unidad || '',
+        Number(v.precioBase) || 0, Number(v.precioFacturado) || 0, Number(v.utilidad) || 0,
+        Number(v.incentivoVendedor) || 0, Number(v.incentivoPromotor) || 0, v.estado || '',
+        v.pagado ? (v.fechaPago || '') : 'Pendiente', v.observaciones || ''];
+    });
+    var porPersona = {};
+    st.incVentas.forEach(function (v) {
+      var k = v.ownerId;
+      if (!porPersona[k]) porPersona[k] = { nombre: v.ownerNombre || '—', n: 0, u: 0, ven: 0, pro: 0 };
+      var g = porPersona[k]; g.n++; g.u += Number(v.utilidad) || 0;
+      g.ven += Number(v.incentivoVendedor) || 0; g.pro += Number(v.incentivoPromotor) || 0;
+    });
+    var pagos = Object.keys(porPersona).sort().map(function (k) {
+      var g = porPersona[k];
+      return [g.nombre, g.n, g.u, g.ven, g.pro, g.ven + g.pro];
+    });
+    var colsPago = [
+      { label: 'Representante', width: 26, type: 'text' }, { label: 'Ventas', width: 12, type: 'number' },
+      { label: 'Utilidad total', width: 18, type: 'money' }, { label: 'Incentivo vendedor', width: 20, type: 'money' },
+      { label: 'Incentivo promotor', width: 20, type: 'money' }, { label: 'Total a liquidar', width: 20, type: 'money' }
+    ];
+    RainbowXLSX.descargar('incentivos_' + (camp ? camp.nombre.replace(/[^\w\-]/g, '_') : 'campana') + '_' + fechaHoy() + '.xlsx', [
+      { name: 'Detalle', cols: colsDet, rows: det },
+      { name: 'Liquidacion', cols: colsPago, rows: pagos }
+    ]);
+    toast('Excel exportado');
+  }
+
+  function fechaHoy() { return hoy(); }
+
+  // ------------------------------------------------------------------
   // Vista Calendario de Ventas (bajo demanda)
   // ------------------------------------------------------------------
   function renderCalendario(container) {
@@ -1337,6 +1774,7 @@
     renderVista: function (container) {
       if (st.vista === 'calendario') renderCalendario(container);
       else if (st.vista === 'resumen') renderResumen(container);
+      else if (st.vista === 'incentivos') renderIncentivos(container);
     }
   };
 })();

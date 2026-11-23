@@ -29,6 +29,10 @@ const ROLES_LABEL = { admin: 'Administrador', supervisor: 'Supervisor', coordina
 const ROLES_CON_SUPERVISOR = ['coordinador', 'retail', 'kam', 'promotor'];
 // Roles a los que se les puede asignar una meta, un ToDo o una actividad.
 const ROLES_DE_EQUIPO = ['coordinador', 'retail', 'kam', 'promotor'];
+// Incentivos: el "jefe" que configura, aprueba y paga es el SUPERVISOR (o admin).
+// El coordinador SOLO consulta y exporta para liquidar; no aprueba ni paga.
+const ROLES_VENDEDOR = ['retail', 'kam', 'promotor'];
+const ESTADOS_INCENTIVO = ['Pendiente', 'Aprobado', 'Rechazado'];
 // Quién puede ser responsable de cada rol. Un coordinador reporta al supervisor
 // y puede tener a su cargo vendedores (retail/KAM) y promotores.
 const PADRE_VALIDO = {
@@ -82,6 +86,64 @@ function saveModulesRegistry() {
 function saveSoon() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { saveGlobalData(); }, 150);
+}
+
+// ---------------- Incentivos: campañas y ventas ----------------
+// Viven en archivos propios dentro de DATA_DIR (igual que todos.json), NO en
+// los rows.json de los módulos: así no afectan calendario, metas ni exportes
+// existentes. Se cargan en memoria al arrancar y se escriben de forma atómica.
+const CAMPAÑAS_FILE = path.join(DATA_DIR, 'data', 'campanas.json');
+const INCENTIVOS_FILE = path.join(DATA_DIR, 'data', 'incentivos.json');
+let campanas = [];
+let incentivos = [];
+
+function loadIncentivosData() {
+  campanas = [];
+  incentivos = [];
+  if (fs.existsSync(CAMPAÑAS_FILE)) {
+    try { const raw = JSON.parse(fs.readFileSync(CAMPAÑAS_FILE, 'utf8')); if (Array.isArray(raw)) campanas = raw; } catch (e) { /* corrupto */ }
+  }
+  if (fs.existsSync(INCENTIVOS_FILE)) {
+    try { const raw = JSON.parse(fs.readFileSync(INCENTIVOS_FILE, 'utf8')); if (Array.isArray(raw)) incentivos = raw; } catch (e) { /* corrupto */ }
+  }
+}
+function saveCampanas() { return writeJsonSafe(CAMPAÑAS_FILE, campanas); }
+function saveIncentivos() { return writeJsonSafe(INCENTIVOS_FILE, incentivos); }
+function uidInc(prefix) { return prefix + '_' + crypto.randomBytes(8).toString('hex'); }
+
+// El jefe de incentivos es supervisor o admin. El coordinador NO configura,
+// NO aprueba y NO paga: solo consulta y exporta para hacer la liquidación.
+function esJefeIncentivos(me) { return !!me && (me.role === 'admin' || me.role === 'supervisor'); }
+function puedeVerIncentivos(me) {
+  return !!me && ['admin', 'supervisor', 'coordinador'].concat(ROLES_VENDEDOR).indexOf(me.role) >= 0;
+}
+function numero(s) { const n = Number(s); return isFinite(n) && n >= 0 ? n : 0; }
+function texto(s, max) { return String(s == null ? '' : s).trim().slice(0, max || 200); }
+function fechaValida(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); }
+// Un participante es { vendedorId, promotorId, pctVendedor, pctPromotor }.
+// El promotor se asigna POR VENDEDOR y los porcentajes los fija el jefe.
+function participanteDe(camp, vendedorId) {
+  if (!camp || !Array.isArray(camp.participantes)) return null;
+  return camp.participantes.find(p => p.vendedorId === vendedorId) || null;
+}
+function productoDe(camp, nombre) {
+  if (!camp || !Array.isArray(camp.productos)) return null;
+  return camp.productos.find(p => p.nombre === nombre) || null;
+}
+// Cálculo canónico: el servidor usó SIEMPRE el precio base y el % guardados en
+// la campaña al momento de cargar (snapshot), nunca lo que envíe el navegador.
+function calcularIncentivo(base, facturado, cantidad, pctVendedor, pctPromotor) {
+  const utilidad = Math.max(0, Math.round((numero(facturado) - numero(base)) * 100) / 100) * numero(cantidad);
+  const total = Math.round(utilidad * 100) / 100;
+  const pv = Math.min(100, Math.max(0, numero(pctVendedor)));
+  const pp = Math.min(100, Math.max(0, numero(pctPromotor)));
+  const divisor = pv + pp || 100;
+  return {
+    utilidad: total,
+    incentivoVendedor: Math.round(total * pv / divisor * 100) / 100,
+    incentivoPromotor: Math.round(total * pp / divisor * 100) / 100,
+    pctVendedor: pv, pctPromotor: pp
+  };
 }
 
 // ---------------- Listado maestro de clientes (autocompletado) ----------------
@@ -238,6 +300,8 @@ function buildSnapshot() {
     metas: globalDb.goals || [],
     clientes: clients,
     todos: todos,
+    campanas: campanas,
+    incentivos: incentivos,
     modulos: modules,
     clientesBase: loadClientesBase()
   };
@@ -277,6 +341,12 @@ function restoreSnapshot(snapshot) {
     writeJsonSafe(path.join(DATA_DIR, 'data', 'todos.json'), snapshot.todos);
   }
 
+  // 4b) Campañas e incentivos (pueden no existir en backups antiguos)
+  campanas = Array.isArray(snapshot.campanas) ? snapshot.campanas : [];
+  incentivos = Array.isArray(snapshot.incentivos) ? snapshot.incentivos : [];
+  saveCampanas();
+  saveIncentivos();
+
   // 5) Registros de cada modulo
   const modulos = snapshot.modulos || {};
   Object.keys(modulos).forEach(id => {
@@ -290,6 +360,8 @@ function restoreSnapshot(snapshot) {
     usuarios: globalDb.users.length,
     metas: globalDb.goals.length,
     todos: Array.isArray(snapshot.todos) ? snapshot.todos.length : 0,
+    campanas: campanas.length,
+    incentivos: incentivos.length,
     modulos: Object.keys(modulos).map(id => ({
       id: id,
       registros: (modulos[id].rows && modulos[id].rows.rows) ? modulos[id].rows.rows.length : 0
@@ -1173,6 +1245,8 @@ const server = http.createServer(async (req, res) => {
         usuarios: snapshot.usuarios.length,
         metas: snapshot.metas.length,
         todos: snapshot.todos.length,
+        campanas: (snapshot.campanas || []).length,
+        incentivos: (snapshot.incentivos || []).length,
         modulos: Object.keys(snapshot.modulos).map(id => ({
           id: id,
           registros: (snapshot.modulos[id].rows && snapshot.modulos[id].rows.rows) ? snapshot.modulos[id].rows.rows.length : 0
@@ -1394,6 +1468,235 @@ const server = http.createServer(async (req, res) => {
 
     // ---- Fin metas ----
 
+    // ================= Incentivos (campañas + ventas) =================
+    // Visibilidad: el supervisor/admin ve todo su equipo; el coordinador ve
+    // el suyo (para liquidar); el representante solo sus propias ventas y las
+    // campañas en las que participa. Reutiliza idsVisiblesPara() (transitivo).
+    if (pathname === '/api/campanas' && method === 'GET') {
+      if (!puedeVerIncentivos(me)) return sendJSON(res, 403, { error: 'Sin acceso a incentivos' });
+      const ids = idsVisiblesPara(me);
+      let lista = campanas.slice();
+      if (ids !== null) {
+        lista = lista.filter(c => c.createdBy === me.id ||
+          (Array.isArray(c.participantes) && c.participantes.some(p =>
+            p.vendedorId === me.id || p.promotorId === me.id || ids.indexOf(p.vendedorId) >= 0)));
+      }
+      lista.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      return sendJSON(res, 200, { campanas: lista, puedeConfigurar: esJefeIncentivos(me) });
+    }
+
+    if (pathname === '/api/campanas' && method === 'POST') {
+      if (!esJefeIncentivos(me)) return sendJSON(res, 403, { error: 'Solo el supervisor puede crear campañas' });
+      const body = await readBody(req);
+      const nombre = texto(body.nombre, 120);
+      const fechaInicio = texto(body.fechaInicio, 10), fechaFin = texto(body.fechaFin, 10);
+      if (!nombre || !fechaValida(fechaInicio) || !fechaValida(fechaFin) || fechaFin < fechaInicio) {
+        return sendJSON(res, 400, { error: 'Nombre y rango de fechas válidos son obligatorios' });
+      }
+      const productos = (Array.isArray(body.productos) ? body.productos : []).map(p => {
+        const nom = texto(p && p.nombre, 120);
+        const unidad = (p && p.unidad === 'kg') ? 'kg' : 'L';
+        return nom ? { nombre: nom, unidad: unidad, precioBase: numero(p.precioBase) } : null;
+      }).filter(Boolean).slice(0, 100);
+      if (!productos.length) return sendJSON(res, 400, { error: 'Agrega al menos un producto con precio base' });
+      const vistos = new Set();
+      const participantes = (Array.isArray(body.participantes) ? body.participantes : []).map(p => {
+        const vendedorId = texto(p && p.vendedorId, 60);
+        const promotorId = texto(p && p.promotorId, 60);
+        if (!vendedorId || vistos.has(vendedorId)) return null;
+        const vendedor = globalDb.users.find(u => u.id === vendedorId);
+        const promotor = promotorId ? globalDb.users.find(u => u.id === promotorId) : null;
+        if (!vendedor || ROLES_VENDEDOR.indexOf(vendedor.role) < 0) return null;
+        if (promotorId && (!promotor || promotor.role !== 'promotor')) return null;
+        vistos.add(vendedorId);
+        const pv = Math.min(100, numero(p.pctVendedor !== undefined ? p.pctVendedor : 50));
+        return { vendedorId, vendedorNombre: vendedor.name, promotorId: promotor ? promotor.id : '',
+          promotorNombre: promotor ? promotor.name : '', pctVendedor: pv, pctPromotor: Math.round((100 - pv) * 100) / 100 };
+      }).filter(Boolean).slice(0, 200);
+      if (!participantes.length) return sendJSON(res, 400, { error: 'Agrega al menos un representante participante' });
+      const idsCfg = idsVisiblesPara(me);
+      if (idsCfg !== null && participantes.some(p => idsCfg.indexOf(p.vendedorId) < 0)) {
+        return sendJSON(res, 403, { error: 'Solo puedes incluir representantes de tu equipo' });
+      }
+      const camp = {
+        id: uidInc('c'), nombre, fechaInicio, fechaFin,
+        condiciones: texto(body.condiciones, 2000),
+        productos, participantes,
+        activa: body.activa !== false,
+        createdBy: me.id, createdAt: Date.now(), updatedAt: Date.now()
+      };
+      campanas.push(camp);
+      saveCampanas();
+      return sendJSON(res, 201, { campana: camp, puedeConfigurar: true });
+    }
+
+    const campMatch = pathname.match(/^\/api\/campanas\/([^/]+)$/);
+    if (campMatch && (method === 'PUT' || method === 'DELETE')) {
+      if (!esJefeIncentivos(me)) return sendJSON(res, 403, { error: 'Solo el supervisor puede modificar campañas' });
+      const camp = campanas.find(c => c.id === campMatch[1]);
+      if (!camp) return sendJSON(res, 404, { error: 'Campaña no encontrada' });
+      if (method === 'DELETE') {
+        const hijas = incentivos.filter(i => i.campanaId === camp.id);
+        if (hijas.length) {
+          // Borrar campaña con ventas (incluso pagadas) exige confirmación
+          // explícita y borra TODAS sus ventas en cascada. Sin ella, nada se toca.
+          const body = await readBody(req);
+          if (body.confirmar !== 'BORRAR') {
+            return sendJSON(res, 400, { error: 'La campaña tiene ' + hijas.length + ' ventas. Envía confirmar: "BORRAR" para eliminarlas también.' });
+          }
+          incentivos = incentivos.filter(i => i.campanaId !== camp.id);
+          saveIncentivos();
+        }
+        campanas = campanas.filter(c => c.id !== camp.id);
+        saveCampanas();
+        return sendJSON(res, 200, { ok: true, ventasBorradas: hijas.length });
+      }
+      const body = await readBody(req);
+      if (body.nombre !== undefined) camp.nombre = texto(body.nombre, 120) || camp.nombre;
+      if (body.condiciones !== undefined) camp.condiciones = texto(body.condiciones, 2000);
+      if (body.fechaInicio !== undefined && fechaValida(body.fechaInicio)) camp.fechaInicio = body.fechaInicio;
+      if (body.fechaFin !== undefined && fechaValida(body.fechaFin)) camp.fechaFin = body.fechaFin;
+      if (camp.fechaFin < camp.fechaInicio) return sendJSON(res, 400, { error: 'La fecha de fin debe ser posterior al inicio' });
+      if (body.activa !== undefined) camp.activa = !!body.activa;
+      if (Array.isArray(body.productos)) {
+        camp.productos = body.productos.map(p => {
+          const nom = texto(p && p.nombre, 120);
+          return nom ? { nombre: nom, unidad: p.unidad === 'kg' ? 'kg' : 'L', precioBase: numero(p.precioBase) } : null;
+        }).filter(Boolean).slice(0, 100);
+        if (!camp.productos.length) return sendJSON(res, 400, { error: 'La campaña debe tener al menos un producto' });
+      }
+      if (Array.isArray(body.participantes)) {
+        camp.participantes = body.participantes.map(p => {
+          const vendedorId = texto(p && p.vendedorId, 60);
+          const u = globalDb.users.find(x => x.id === vendedorId);
+          const prom = globalDb.users.find(x => x.id === texto(p && p.promotorId, 60));
+          if (!u || ROLES_VENDEDOR.indexOf(u.role) < 0) return null;
+          const pv = Math.min(100, numero(p.pctVendedor !== undefined ? p.pctVendedor : 50));
+          return { vendedorId, vendedorNombre: u.name, promotorId: prom && prom.role === 'promotor' ? prom.id : '',
+            promotorNombre: prom && prom.role === 'promotor' ? prom.name : '',
+            pctVendedor: pv, pctPromotor: Math.round((100 - pv) * 100) / 100 };
+        }).filter(Boolean).slice(0, 200);
+        if (!camp.participantes.length) return sendJSON(res, 400, { error: 'Debe quedar al menos un participante' });
+      }
+      camp.updatedAt = Date.now();
+      saveCampanas();
+      return sendJSON(res, 200, { campana: camp });
+    }
+
+    if (pathname === '/api/incentivos' && method === 'GET') {
+      if (!puedeVerIncentivos(me)) return sendJSON(res, 403, { error: 'Sin acceso a incentivos' });
+      const campanaId = texto(url.searchParams.get('campanaId'), 60);
+      const ids = idsVisiblesPara(me);
+      let lista = incentivos.slice();
+      if (campanaId) lista = lista.filter(i => i.campanaId === campanaId);
+      // Promotor: ve las ventas donde él recibe una parte, además de las suyas.
+      if (me.role === 'promotor') {
+        lista = lista.filter(i => i.promotorId === me.id || i.ownerId === me.id);
+      } else if (ids !== null) {
+        lista = lista.filter(i => ids.indexOf(i.ownerId) >= 0 || ids.indexOf(i.promotorId) >= 0);
+      }
+      lista.sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')) || (b.createdAt || 0) - (a.createdAt || 0));
+      return sendJSON(res, 200, {
+        ventas: lista,
+        puedeAprobar: esJefeIncentivos(me),
+        puedeExportar: esJefeIncentivos(me) || me.role === 'coordinador'
+      });
+    }
+
+    if (pathname === '/api/incentivos' && method === 'POST') {
+      if (ROLES_VENDEDOR.indexOf(me.role) < 0 && !esJefeIncentivos(me)) {
+        return sendJSON(res, 403, { error: 'Solo los representantes pueden cargar ventas' });
+      }
+      const body = await readBody(req);
+      const camp = campanas.find(c => c.id === texto(body.campanaId, 60));
+      if (!camp) return sendJSON(res, 400, { error: 'Campaña no encontrada' });
+      if (!camp.activa) return sendJSON(res, 400, { error: 'La campaña está cerrada' });
+      const ownerId = esJefeIncentivos(me) && body.ownerId ? texto(body.ownerId, 60) : me.id;
+      const part = participanteDe(camp, ownerId);
+      if (!part) return sendJSON(res, 400, { error: 'Ese representante no participa en la campaña' });
+      if (!esJefeIncentivos(me) && ownerId !== me.id) return sendJSON(res, 403, { error: 'Solo puedes cargar tus propias ventas' });
+      const idsOwner = idsVisiblesPara(me);
+      if (idsOwner !== null && idsOwner.indexOf(ownerId) < 0) {
+        return sendJSON(res, 403, { error: 'No tienes permiso sobre ese representante' });
+      }
+      const fecha = texto(body.fecha, 10);
+      if (!fechaValida(fecha) || fecha < camp.fechaInicio || fecha > camp.fechaFin) {
+        return sendJSON(res, 400, { error: 'La fecha debe estar dentro del rango de la campaña (' + camp.fechaInicio + ' a ' + camp.fechaFin + ')' });
+      }
+      const producto = texto(body.producto, 120);
+      const prod = productoDe(camp, producto);
+      if (!prod) return sendJSON(res, 400, { error: 'Producto no válido para esta campaña' });
+      const cliente = texto(body.cliente, 200);
+      if (!cliente) return sendJSON(res, 400, { error: 'El cliente es obligatorio' });
+      const cantidad = numero(body.cantidad);
+      if (cantidad <= 0) return sendJSON(res, 400, { error: 'La cantidad debe ser mayor a cero' });
+      const facturado = numero(body.precioFacturado);
+      const calc = calcularIncentivo(prod.precioBase, facturado, cantidad, part.pctVendedor, part.pctPromotor);
+      const venta = {
+        id: uidInc('i'), campanaId: camp.id, campanaNombre: camp.nombre,
+        ownerId, ownerNombre: part.vendedorNombre,
+        promotorId: part.promotorId || '', promotorNombre: part.promotorNombre || '',
+        cliente, fecha, producto: prod.nombre, unidad: prod.unidad, cantidad,
+        precioBase: prod.precioBase, precioFacturado: facturado,
+        utilidad: calc.utilidad, incentivoVendedor: calc.incentivoVendedor, incentivoPromotor: calc.incentivoPromotor,
+        pctVendedor: calc.pctVendedor, pctPromotor: calc.pctPromotor,
+        estado: 'Pendiente', pagado: false, fechaPago: '',
+        observaciones: texto(body.observaciones, 500),
+        createdBy: me.id, createdAt: Date.now(), updatedAt: Date.now()
+      };
+      incentivos.push(venta);
+      saveIncentivos();
+      return sendJSON(res, 201, { venta });
+    }
+
+    const incMatch = pathname.match(/^\/api\/incentivos\/([^/]+)\/(aprobar|rechazar)$/);
+    if (incMatch && method === 'PUT') {
+      if (!esJefeIncentivos(me)) return sendJSON(res, 403, { error: 'Solo el supervisor puede aprobar ventas' });
+      const venta = incentivos.find(i => i.id === incMatch[1]);
+      if (!venta) return sendJSON(res, 404, { error: 'Venta no encontrada' });
+      if (venta.pagado) return sendJSON(res, 400, { error: 'No se puede cambiar una venta ya pagada' });
+      venta.estado = incMatch[2] === 'aprobar' ? 'Aprobado' : 'Rechazado';
+      venta.revisadoPor = me.id; venta.revisadoNombre = me.name; venta.updatedAt = Date.now();
+      saveIncentivos();
+      return sendJSON(res, 200, { venta });
+    }
+
+    if (pathname === '/api/incentivos/pagar' && method === 'POST') {
+      if (!esJefeIncentivos(me)) return sendJSON(res, 403, { error: 'Solo el supervisor puede registrar pagos' });
+      const body = await readBody(req);
+      const campanaId = texto(body.campanaId, 60);
+      const ownerId = texto(body.ownerId, 60);
+      const fechaPago = texto(body.fechaPago, 10);
+      if (!campanaId || !ownerId || !fechaValida(fechaPago)) {
+        return sendJSON(res, 400, { error: 'Campaña, representante y fecha de pago son obligatorios' });
+      }
+      const ids = idsVisiblesPara(me);
+      if (ids !== null && ids.indexOf(ownerId) < 0) return sendJSON(res, 403, { error: 'No tienes permiso sobre ese representante' });
+      let n = 0;
+      incentivos.forEach(i => {
+        if (i.campanaId === campanaId && i.ownerId === ownerId && i.estado === 'Aprobado' && !i.pagado) {
+          i.pagado = true; i.fechaPago = fechaPago; i.pagadoPor = me.id; i.updatedAt = Date.now(); n++;
+        }
+      });
+      if (n) saveIncentivos();
+      return sendJSON(res, 200, { pagadas: n });
+    }
+
+    const incDel = pathname.match(/^\/api\/incentivos\/([^/]+)$/);
+    if (incDel && method === 'DELETE') {
+      const venta = incentivos.find(i => i.id === incDel[1]);
+      if (!venta) return sendJSON(res, 404, { error: 'Venta no encontrada' });
+      const dueno = venta.ownerId === me.id || venta.createdBy === me.id;
+      if (!esJefeIncentivos(me) && !dueno) return sendJSON(res, 403, { error: 'No puedes borrar esta venta' });
+      if (venta.pagado) return sendJSON(res, 400, { error: 'No se puede borrar una venta ya pagada' });
+      if (!esJefeIncentivos(me) && (!dueno || venta.estado !== 'Pendiente')) {
+        return sendJSON(res, 400, { error: 'Solo puedes borrar tus ventas pendientes' });
+      }
+      incentivos = incentivos.filter(i => i.id !== venta.id);
+      saveIncentivos();
+      return sendJSON(res, 200, { ok: true });
+    }
+
     // ---- Gestión de usuarios (solo admin) ----
     if (pathname === '/api/users' && method === 'GET') {
       const ids = idsVisiblesPara(me);
@@ -1511,6 +1814,7 @@ process.on('unhandledRejection', (err) => {
 try { fs.mkdirSync(path.join(DATA_DIR, 'data'), { recursive: true }); } catch (e) { /* ya existe */ }
 try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); } catch (e) { /* ya existe */ }
 loadGlobalData();
+loadIncentivosData();
 loadModulesRegistry();
 migrate();
 seed();

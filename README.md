@@ -91,6 +91,32 @@ número de tareas pendientes (también como contador en el botón de la barra):
   «Tareas ToDo» se conserva para asignar. Al guardar la actividad programada
   la tarea se elimina sola.
 
+## Campañas de incentivo (pestaña «Incentivos» de Ventas)
+Sistema separado de las actividades y de las metas: no altera el calendario ni los
+registros existentes. Datos en `data/campanas.json` y `data/incentivos.json`,
+incluidos en el snapshot de backup/restore.
+
+- **Supervisor / admin**: crean campañas con rango de fechas, varios productos
+  (precio base y unidad kg o L por producto), condiciones libres y participantes.
+  El porcentaje lo fija el jefe (ej. 50% vendedor / 50% promotor) y el promotor se
+  asigna **por vendedor**. Aprueban o rechazan ventas, cierran campañas y registran
+  el pago de bonificación **por persona y campaña** (fecha = fecha de bonificación).
+- **Coordinador**: ve campañas, ventas y resúmenes y puede **exportar el Excel**
+  (`Detalle` + `Liquidación`) para encargarse de la liquidación. No configura,
+  no aprueba y no registra pagos.
+- **Representante / promotor**: ven las **condiciones de la campaña** (vigencia,
+  productos, precios base y reparto de todos los participantes) y cargan sus
+  ventas: cliente, fecha dentro del rango, producto, cantidad y precio facturado
+  **sin IGV**. Cada venta nace `Pendiente`: el incentivo se calcula y se muestra,
+  pero no entra al total pagable hasta la aprobación del supervisor.
+
+El incentivo lo calcula **el servidor**, con el precio base y el porcentaje
+guardados al cargar (si la campaña cambia después, las ventas antiguas no se
+alteran): `(precio facturado − precio base) × cantidad`, repartido según los
+porcentajes. Si el precio facturado es menor al base, el incentivo es 0.
+Dos decimales y moneda US$. Borrar una campaña con ventas exige `confirmar:
+"BORRAR"` y elimina también sus ventas en cascada.
+
 ## Apariencia
 Fondo de página claro (`--page`) y verde oscuro (`--bg`) reservado para cabeceras,
 pestaña activa y acentos, de modo que el encabezado del panel de metas ya no se
