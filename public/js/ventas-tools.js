@@ -115,6 +115,11 @@
   function esCoord() { var u = me(); return !!(u && u.role === 'coordinador'); }
   function veVarios() { return esJefe(); }
   function esVendedor(u) { return !!u && ROLES_VENDEDOR.indexOf(u.role) >= 0; }
+  // Fechas legibles en dia-mes-año (ISO YYYY-MM-DD se usa solo en storage/inputs).
+  function fmtFecha(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+    return m ? m[3] + '-' + m[2] + '-' + m[1] : (s || '');
+  }
   function reps() { return st.usuarios.filter(esVendedor); }
   function setVal(id, v) { var e = $(id); if (e) e.value = v == null ? '' : v; }
   function val(id) { var e = $(id); return e ? e.value.trim() : ''; }
@@ -1018,6 +1023,7 @@
           'Registra tus ventas y consulta tus incentivos') + '</div></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
       (st.incPuedeExportar ? '<button class="ghost small" id="vtIncExport">Exportar Excel</button>' : '') +
+      (esJefe && camp ? '<button class="ghost small" id="vtIncRecalc" title="Recalcula el reparto de las ventas aún no liquidadas">Recalcular incentivos</button>' : '') +
       (esJefe ? '<button class="ghost small" id="vtIncNueva">+ Nueva campaña</button>' : '') +
       '</div></div>';
 
@@ -1032,7 +1038,7 @@
     html += '<div style="margin-top:14px"><label style="font-size:12px">Campaña</label>' +
       '<select id="vtIncSelCamp" style="max-width:420px">' + st.incCampanas.map(function (c) {
         return '<option value="' + esc(c.id) + '"' + (c.id === st.incCampanaId ? ' selected' : '') + '>' +
-          esc(c.nombre) + ' · ' + esc(c.fechaInicio) + ' a ' + esc(c.fechaFin) + (c.activa ? '' : ' (cerrada)') + '</option>';
+          esc(c.nombre) + ' · ' + fmtFecha(c.fechaInicio) + ' a ' + fmtFecha(c.fechaFin) + (c.activa ? '' : ' (cerrada)') + '</option>';
       }).join('') + '</select></div>';
 
     if (camp) {
@@ -1040,7 +1046,7 @@
       html += '<div class="vt-inc-cond" style="margin-top:14px">' +
         '<div class="vt-inc-cond-hd">Condiciones de la campaña</div>' +
         '<div class="vt-inc-cond-grid">' +
-        '<div><span class="k">Vigencia</span><span class="v">' + esc(camp.fechaInicio) + ' a ' + esc(camp.fechaFin) + '</span></div>' +
+        '<div><span class="k">Vigencia</span><span class="v">' + fmtFecha(camp.fechaInicio) + ' a ' + fmtFecha(camp.fechaFin) + '</span></div>' +
         '<div><span class="k">Estado</span><span class="v">' + (camp.activa ? 'Activa' : 'Cerrada') + '</span></div>' +
         '</div>';
       if (camp.condiciones) {
@@ -1131,14 +1137,14 @@
       st.incVentas.forEach(function (v) {
         var puedeBorrar = st.incPuedeAprobar || (v.ownerId === u.id && v.estado === 'Pendiente');
         html += '<tr>' +
-          '<td>' + esc(v.fecha) + '</td><td>' + esc(v.ownerNombre || '—') + '</td>' +
+          '<td>' + fmtFecha(v.fecha) + '</td><td>' + esc(v.ownerNombre || '—') + '</td>' +
           '<td>' + esc(v.promotorNombre || '—') + '</td><td>' + esc(v.cliente) + '</td>' +
           '<td>' + esc(v.producto) + '</td><td>' + Number(v.cantidad || 0).toLocaleString('en-US') + ' ' + esc(v.unidad || '') + '</td>' +
           '<td>' + money(v.precioBase) + '</td><td>' + money(v.precioFacturado) + '</td>' +
           '<td>' + money(v.utilidad) + '</td><td><b>' + money(v.incentivoVendedor) + '</b></td>' +
           '<td><b>' + money(v.incentivoPromotor) + '</b></td>' +
           '<td><span class="vt-inc-estado ' + esc(v.estado.toLowerCase()) + '">' + esc(v.estado) + '</span></td>' +
-          '<td>' + (v.pagado ? esc(v.fechaPago) : '—') + '</td>' +
+          '<td>' + (v.pagado ? fmtFecha(v.fechaPago) : '—') + '</td>' +
           '<td>' + (st.incPuedeAprobar && v.estado !== 'Aprobado' && !v.pagado ?
             '<button class="small" data-inc-apr="' + esc(v.id) + '">Aprobar</button> ' +
             '<button class="ghost small" data-inc-rech="' + esc(v.id) + '">Rechazar</button> ' : '') +
@@ -1178,6 +1184,14 @@
     if ($('vtIncCerrar')) $('vtIncCerrar').onclick = function () { cambiarActiva(camp, false, container); };
     if ($('vtIncAbrir')) $('vtIncAbrir').onclick = function () { cambiarActiva(camp, true, container); };
     if ($('vtIncExport')) $('vtIncExport').onclick = function () { exportarIncentivos(camp); };
+    if ($('vtIncRecalc')) $('vtIncRecalc').onclick = function () {
+      if (!window.confirm('¿Recalcular el reparto de las ventas NO pagadas de "' + (camp ? camp.nombre : '') + '" con el porcentaje vigente? Las ya liquidadas no cambian.')) return;
+      api('POST', '/api/incentivos/recalcular', { campanaId: camp.id }).then(function (r) {
+        if (!r.ok) { toast(r.data && r.data.error || 'No se pudo recalcular'); return; }
+        toast((r.data.recalculadas || 0) + ' venta(s) recalculadas');
+        cargarIncentivos(function () { renderIncentivos(container); });
+      });
+    };
 
     if (puedeCargar && camp && camp.activa) {
       if (window.RainbowClientes) RainbowClientes.adjuntar($('vtIncCliente'));
@@ -1304,6 +1318,12 @@
           '<input class="vt-q-pct" type="number" min="0" max="100" step="1" title="% vendedor" value="' + (p ? p.pctVendedor : 50) + '">' +
           '<button class="ghost small vt-q-del">×</button>';
         d.querySelector('.vt-q-del').onclick = function () { d.remove(); };
+        var pro = d.querySelector('.vt-q-pro'), pct = d.querySelector('.vt-q-pct');
+        function syncPct() {
+          if (!pro.value) { pct.value = 100; pct.disabled = true; }
+          else { pct.disabled = false; if (pct.value === '100' || pct.value === '') pct.value = 50; }
+        }
+        pro.onchange = syncPct; syncPct();
         $('vtCampParts').appendChild(d);
       }
       (parts.length ? parts : [{}]).forEach(filaPart);
@@ -1315,8 +1335,9 @@
             precioBase: d.querySelector('.vt-p-base').value };
         }).filter(function (p) { return p.nombre; });
         var participantes = Array.prototype.map.call($('vtCampParts').children, function (d) {
-          return { vendedorId: d.querySelector('.vt-q-ven').value, promotorId: d.querySelector('.vt-q-pro').value,
-            pctVendedor: d.querySelector('.vt-q-pct').value };
+          var proId = d.querySelector('.vt-q-pro').value;
+          return { vendedorId: d.querySelector('.vt-q-ven').value, promotorId: proId,
+            pctVendedor: proId ? d.querySelector('.vt-q-pct').value : 100 };
         }).filter(function (p) { return p.vendedorId; });
         var body = { nombre: val('vtCampNom'), fechaInicio: val('vtCampIni'), fechaFin: val('vtCampFin'),
           condiciones: val('vtCampCond'), productos: productos, participantes: participantes };
@@ -1364,11 +1385,11 @@
       { label: 'Fecha de pago', width: 16, type: 'text' }, { label: 'Observaciones', width: 30, type: 'text' }
     ];
     var det = st.incVentas.map(function (v) {
-      return [v.campanaNombre || '', v.fecha || '', v.ownerNombre || '', v.promotorNombre || '',
+      return [v.campanaNombre || '', fmtFecha(v.fecha), v.ownerNombre || '', v.promotorNombre || '',
         v.cliente || '', v.producto || '', Number(v.cantidad) || 0, v.unidad || '',
         Number(v.precioBase) || 0, Number(v.precioFacturado) || 0, Number(v.utilidad) || 0,
         Number(v.incentivoVendedor) || 0, Number(v.incentivoPromotor) || 0, v.estado || '',
-        v.pagado ? (v.fechaPago || '') : 'Pendiente', v.observaciones || ''];
+        v.pagado ? fmtFecha(v.fechaPago) : 'Pendiente', v.observaciones || ''];
     });
     var porPersona = {};
     st.incVentas.forEach(function (v) {

@@ -132,6 +132,15 @@ function productoDe(camp, nombre) {
 }
 // Cálculo canónico: el servidor usó SIEMPRE el precio base y el % guardados en
 // la campaña al momento de cargar (snapshot), nunca lo que envíe el navegador.
+// Normaliza el reparto de un participante: SIN promotor, el 100% es para el
+// vendedor (regla del negocio). Con promotor, se respeta el % del vendedor
+// (default 50) y el resto es del promotor. Un campo vacío NO vale 0.
+function repartoParticipante(pvEntrada, tienePromotor) {
+  const pvCrudo = pvEntrada === undefined || pvEntrada === null || String(pvEntrada).trim() === '' ? null : Number(pvEntrada);
+  const pv = !tienePromotor ? 100 :
+    (pvCrudo === null || !isFinite(pvCrudo) ? 50 : Math.min(100, Math.max(0, pvCrudo)));
+  return { pctVendedor: pv, pctPromotor: Math.round((100 - pv) * 100) / 100 };
+}
 function calcularIncentivo(base, facturado, cantidad, pctVendedor, pctPromotor) {
   const utilidad = Math.max(0, Math.round((numero(facturado) - numero(base)) * 100) / 100) * numero(cantidad);
   const total = Math.round(utilidad * 100) / 100;
@@ -144,6 +153,32 @@ function calcularIncentivo(base, facturado, cantidad, pctVendedor, pctPromotor) 
     incentivoPromotor: Math.round(total * pp / divisor * 100) / 100,
     pctVendedor: pv, pctPromotor: pp
   };
+}
+
+// Recalcula el reparto de las ventas NO pagadas de una campaña usando el
+// reparto VIGENTE en la campaña. Las ventas pagadas quedan intactas (ya se
+// liquidaron con el reparto que tenían). Devuelve cuántas se actualizaron.
+function recalcularVentasCampana(campanaId) {
+  const camp = campanas.find(c => c.id === campanaId);
+  if (!camp) return -1;
+  let n = 0;
+  incentivos.forEach(v => {
+    if (v.campanaId !== campanaId || v.pagado) return;
+    const part = participanteDe(camp, v.ownerId);
+    if (!part) return;
+    const calc = calcularIncentivo(v.precioBase, v.precioFacturado, v.cantidad,
+      part.pctVendedor, part.pctPromotor);
+    v.utilidad = calc.utilidad;
+    v.incentivoVendedor = calc.incentivoVendedor;
+    v.incentivoPromotor = calc.incentivoPromotor;
+    v.pctVendedor = calc.pctVendedor;
+    v.pctPromotor = calc.pctPromotor;
+    v.promotorId = part.promotorId || '';
+    v.promotorNombre = part.promotorNombre || '';
+    n++;
+  });
+  if (n) saveIncentivos();
+  return n;
 }
 
 // ---------------- Listado maestro de clientes (autocompletado) ----------------
@@ -1511,9 +1546,9 @@ const server = http.createServer(async (req, res) => {
         if (!vendedor || ROLES_VENDEDOR.indexOf(vendedor.role) < 0) return null;
         if (promotorId && (!promotor || promotor.role !== 'promotor')) return null;
         vistos.add(vendedorId);
-        const pv = Math.min(100, numero(p.pctVendedor !== undefined ? p.pctVendedor : 50));
+        const reparto = repartoParticipante(p.pctVendedor, !!promotor);
         return { vendedorId, vendedorNombre: vendedor.name, promotorId: promotor ? promotor.id : '',
-          promotorNombre: promotor ? promotor.name : '', pctVendedor: pv, pctPromotor: Math.round((100 - pv) * 100) / 100 };
+          promotorNombre: promotor ? promotor.name : '', pctVendedor: reparto.pctVendedor, pctPromotor: reparto.pctPromotor };
       }).filter(Boolean).slice(0, 200);
       if (!participantes.length) return sendJSON(res, 400, { error: 'Agrega al menos un representante participante' });
       const idsCfg = idsVisiblesPara(me);
@@ -1573,16 +1608,19 @@ const server = http.createServer(async (req, res) => {
           const u = globalDb.users.find(x => x.id === vendedorId);
           const prom = globalDb.users.find(x => x.id === texto(p && p.promotorId, 60));
           if (!u || ROLES_VENDEDOR.indexOf(u.role) < 0) return null;
-          const pv = Math.min(100, numero(p.pctVendedor !== undefined ? p.pctVendedor : 50));
-          return { vendedorId, vendedorNombre: u.name, promotorId: prom && prom.role === 'promotor' ? prom.id : '',
-            promotorNombre: prom && prom.role === 'promotor' ? prom.name : '',
-            pctVendedor: pv, pctPromotor: Math.round((100 - pv) * 100) / 100 };
+          const promotorValido = prom && prom.role === 'promotor' ? prom : null;
+          const reparto = repartoParticipante(p.pctVendedor, !!promotorValido);
+          return { vendedorId, vendedorNombre: u.name, promotorId: promotorValido ? promotorValido.id : '',
+            promotorNombre: promotorValido ? promotorValido.name : '',
+            pctVendedor: reparto.pctVendedor, pctPromotor: reparto.pctPromotor };
         }).filter(Boolean).slice(0, 200);
         if (!camp.participantes.length) return sendJSON(res, 400, { error: 'Debe quedar al menos un participante' });
       }
       camp.updatedAt = Date.now();
       saveCampanas();
-      return sendJSON(res, 200, { campana: camp });
+      // Un cambio de reparto se aplica a las ventas aún no liquidadas.
+      const recalculadas = recalcularVentasCampana(camp.id);
+      return sendJSON(res, 200, { campana: camp, recalculadas: recalculadas });
     }
 
     if (pathname === '/api/incentivos' && method === 'GET') {
@@ -1609,6 +1647,16 @@ const server = http.createServer(async (req, res) => {
         puedeAprobar: esJefeIncentivos(me),
         puedeExportar: esJefeIncentivos(me) || me.role === 'coordinador'
       });
+    }
+
+    // Recalcular ventas no pagadas de una campaña con el reparto vigente.
+    if (pathname === '/api/incentivos/recalcular' && method === 'POST') {
+      if (!esJefeIncentivos(me)) return sendJSON(res, 403, { error: 'Solo el supervisor puede recalcular' });
+      const body = await readBody(req);
+      const campanaId = texto(body.campanaId, 60);
+      const n = recalcularVentasCampana(campanaId);
+      if (n < 0) return sendJSON(res, 404, { error: 'Campaña no encontrada' });
+      return sendJSON(res, 200, { recalculadas: n });
     }
 
     if (pathname === '/api/incentivos' && method === 'POST') {
