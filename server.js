@@ -1469,14 +1469,16 @@ const server = http.createServer(async (req, res) => {
     // ---- Fin metas ----
 
     // ================= Incentivos (campañas + ventas) =================
-    // Visibilidad: el supervisor/admin ve todo su equipo; el coordinador ve
-    // el suyo (para liquidar); el representante solo sus propias ventas y las
-    // campañas en las que participa. Reutiliza idsVisiblesPara() (transitivo).
+    // Visibilidad: supervisor/admin ven todo; el COORDINADOR ve TODAS las
+    // campañas y ventas (consolida resultados de todos los representantes,
+    // aunque no tenga gente asignada como responsable); el representante solo
+    // las suyas y el promotor las suyas + las que le generan incentivo.
     if (pathname === '/api/campanas' && method === 'GET') {
       if (!puedeVerIncentivos(me)) return sendJSON(res, 403, { error: 'Sin acceso a incentivos' });
       const ids = idsVisiblesPara(me);
       let lista = campanas.slice();
-      if (ids !== null) {
+      // El coordinador NO se filtra por equipo: ve el avance de TODOS.
+      if (ids !== null && me.role !== 'coordinador') {
         lista = lista.filter(c => c.createdBy === me.id ||
           (Array.isArray(c.participantes) && c.participantes.some(p =>
             p.vendedorId === me.id || p.promotorId === me.id || ids.indexOf(p.vendedorId) >= 0)));
@@ -1592,12 +1594,13 @@ const server = http.createServer(async (req, res) => {
       // El representante (retail/KAM) SOLO ve sus propias ventas, aunque tenga
       // gente a cargo: incentivos no usa el alcance de equipo de idsVisiblesPara.
       // El promotor ve las suyas + las que le generan incentivo (fue asignado
-      // por el supervisor a ese vendedor). Jefes/coordinador ven su alcance.
+      // por el supervisor a ese vendedor). El coordinador ve TODAS para
+      // consolidar y presentar resultados; supervisor/admin ven su alcance.
       if (me.role === 'retail' || me.role === 'kam') {
         lista = lista.filter(i => i.ownerId === me.id);
       } else if (me.role === 'promotor') {
         lista = lista.filter(i => i.ownerId === me.id || i.promotorId === me.id);
-      } else if (ids !== null) {
+      } else if (ids !== null && me.role !== 'coordinador') {
         lista = lista.filter(i => ids.indexOf(i.ownerId) >= 0 || ids.indexOf(i.promotorId) >= 0);
       }
       lista.sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')) || (b.createdAt || 0) - (a.createdAt || 0));

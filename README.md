@@ -101,11 +101,13 @@ incluidos en el snapshot de backup/restore.
   El porcentaje lo fija el jefe (ej. 50% vendedor / 50% promotor) y el promotor se
   asigna **por vendedor**. Aprueban o rechazan ventas, cierran campañas y registran
   el pago de bonificación **por persona y campaña** (fecha = fecha de bonificación).
-- **Coordinador**: ve campañas, ventas y resúmenes y puede **exportar el Excel**
+- **Coordinador**: ve **todas** las campañas y **todas** las ventas de todos los
+  representantes (consolida resultados y presenta los avances, aunque no tenga
+  vendedores asignados como responsable) y puede **exportar el Excel**
   (`Detalle` + `Liquidación`) para encargarse de la liquidación. No configura,
   no aprueba y no registra pagos.
 - **Representante / promotor**: ven las **condiciones de la campaña** (vigencia,
-  productos, precios base y reparto de todos los participantes) y cargan sus
+  productos, precios base y su reparto) y cargan sus
   ventas: cliente, fecha dentro del rango, producto, cantidad y precio facturado
   **sin IGV**. Cada venta nace `Pendiente`: el incentivo se calcula y se muestra,
   pero no entra al total pagable hasta la aprobación del supervisor.
