@@ -1711,7 +1711,12 @@ const server = http.createServer(async (req, res) => {
       const venta = incentivos.find(i => i.id === incMatch[1]);
       if (!venta) return sendJSON(res, 404, { error: 'Venta no encontrada' });
       if (venta.pagado) return sendJSON(res, 400, { error: 'No se puede cambiar una venta ya pagada' });
-      venta.estado = incMatch[2] === 'aprobar' ? 'Aprobado' : 'Rechazado';
+      const body = await readBody(req);
+      const esRechazo = incMatch[2] === 'rechazar';
+      const motivo = texto(body && body.motivo, 500);
+      if (esRechazo && !motivo) return sendJSON(res, 400, { error: 'El motivo del rechazo es obligatorio' });
+      venta.estado = esRechazo ? 'Rechazado' : 'Aprobado';
+      venta.motivoRechazo = esRechazo ? motivo : '';
       venta.revisadoPor = me.id; venta.revisadoNombre = me.name; venta.updatedAt = Date.now();
       saveIncentivos();
       return sendJSON(res, 200, { venta });

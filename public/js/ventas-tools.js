@@ -1132,7 +1132,7 @@
       html += '<div style="overflow-x:auto"><table class="vt-inc-tbl"><thead><tr>' +
         '<th>Fecha</th><th>Vendedor</th><th>Promotor</th><th>Cliente</th><th>Producto</th>' +
         '<th>Cant.</th><th>Base</th><th>Facturado</th><th>Utilidad</th><th>Inc. vendedor</th>' +
-        '<th>Inc. promotor</th><th>Estado</th><th>Pago</th>' + (st.incPuedeAprobar || st.incVentas.some(function (v) { return v.ownerId === u.id; }) ? '<th></th>' : '') +
+        '<th>Inc. promotor</th><th>Estado</th><th>Motivo de rechazo</th><th>Pago</th>' + (st.incPuedeAprobar || st.incVentas.some(function (v) { return v.ownerId === u.id; }) ? '<th></th>' : '') +
         '</tr></thead><tbody>';
       st.incVentas.forEach(function (v) {
         var puedeBorrar = st.incPuedeAprobar || (v.ownerId === u.id && v.estado === 'Pendiente');
@@ -1144,6 +1144,7 @@
           '<td>' + money(v.utilidad) + '</td><td><b>' + money(v.incentivoVendedor) + '</b></td>' +
           '<td><b>' + money(v.incentivoPromotor) + '</b></td>' +
           '<td><span class="vt-inc-estado ' + esc(v.estado.toLowerCase()) + '">' + esc(v.estado) + '</span></td>' +
+          '<td>' + (v.motivoRechazo ? esc(v.motivoRechazo) : '—') + '</td>' +
           '<td>' + (v.pagado ? fmtFecha(v.fechaPago) : '—') + '</td>' +
           '<td>' + (st.incPuedeAprobar && v.estado !== 'Aprobado' && !v.pagado ?
             '<button class="small" data-inc-apr="' + esc(v.id) + '">Aprobar</button> ' +
@@ -1211,8 +1212,8 @@
 
     container.querySelectorAll('[data-inc-apr],[data-inc-rech],[data-inc-del],[data-inc-pagar]').forEach(function (b) {
       b.onclick = function () {
-        if (b.dataset.incApr) cambiarEstado(b.dataset.incApr, 'aprobar', container);
-        else if (b.dataset.incRech) cambiarEstado(b.dataset.incRech, 'rechazar', container);
+        if (b.dataset.incApr) cambiarEstado(b.dataset.incApr, 'aprobar', container, '');
+        else if (b.dataset.incRech) abrirRechazo(b.dataset.incRech, container);
         else if (b.dataset.incDel) borrarVenta(b.dataset.incDel, container);
         else if (b.dataset.incPagar) abrirPago(b.dataset.incPagar, container);
       };
@@ -1247,11 +1248,33 @@
     });
   }
 
-  function cambiarEstado(id, accion, container) {
-    api('PUT', '/api/incentivos/' + encodeURIComponent(id) + '/' + accion, {}).then(function (r) {
+  function cambiarEstado(id, accion, container, motivo) {
+    var body = accion === 'rechazar' ? { motivo: motivo || '' } : {};
+    api('PUT', '/api/incentivos/' + encodeURIComponent(id) + '/' + accion, body).then(function (r) {
       if (!r.ok) { toast((r.data && r.data.error) || 'No se pudo actualizar'); return; }
       toast(accion === 'aprobar' ? 'Venta aprobada' : 'Venta rechazada');
       cargarIncentivos(function () { renderIncentivos(container); });
+    });
+  }
+
+  function abrirRechazo(id, container) {
+    var venta = st.incVentas.filter(function (v) { return v.id === id; })[0] || {};
+    var html = '<p>Rechazando la venta de <b>' + esc(venta.ownerNombre || '—') + '</b> · ' +
+      esc(venta.cliente || '') + ' · ' + money(venta.utilidad) + ' de utilidad.</p>' +
+      '<div><label>Motivo del rechazo (obligatorio)</label>' +
+      '<textarea id="vtRechMotivo" rows="3" maxlength="500" placeholder="Ej: El precio facturado no coincide con la factura"></textarea></div>' +
+      '<div id="vtRechErr" class="vt-err"></div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px"><button id="vtRechSave">Confirmar rechazo</button>' +
+      '<button class="ghost" id="vtRechCancel">Cancelar</button></div>';
+    abrirModal('Rechazar venta', html, function () {
+      $('vtRechCancel').onclick = cerrarModal;
+      $('vtRechSave').onclick = function () {
+        var motivo = val('vtRechMotivo');
+        if (!motivo) { error('vtRechErr', 'Escribe el motivo del rechazo.'); return; }
+        error('vtRechErr', 'Rechazando...', true);
+        cambiarEstado(id, 'rechazar', container, motivo);
+        cerrarModal();
+      };
     });
   }
 
@@ -1382,6 +1405,7 @@
       { label: 'Precio base', width: 16, type: 'money' }, { label: 'Precio facturado', width: 18, type: 'money' },
       { label: 'Utilidad', width: 16, type: 'money' }, { label: 'Inc. vendedor', width: 16, type: 'money' },
       { label: 'Inc. promotor', width: 16, type: 'money' }, { label: 'Estado', width: 14, type: 'text' },
+      { label: 'Motivo de rechazo', width: 32, type: 'text' },
       { label: 'Fecha de pago', width: 16, type: 'text' }, { label: 'Observaciones', width: 30, type: 'text' }
     ];
     var det = st.incVentas.map(function (v) {
@@ -1389,7 +1413,7 @@
         v.cliente || '', v.producto || '', Number(v.cantidad) || 0, v.unidad || '',
         Number(v.precioBase) || 0, Number(v.precioFacturado) || 0, Number(v.utilidad) || 0,
         Number(v.incentivoVendedor) || 0, Number(v.incentivoPromotor) || 0, v.estado || '',
-        v.pagado ? fmtFecha(v.fechaPago) : 'Pendiente', v.observaciones || ''];
+        v.motivoRechazo || '', v.pagado ? fmtFecha(v.fechaPago) : 'Pendiente', v.observaciones || ''];
     });
     var porPersona = {};
     st.incVentas.forEach(function (v) {

@@ -99,8 +99,10 @@ incluidos en el snapshot de backup/restore.
 - **Supervisor / admin**: crean campañas con rango de fechas, varios productos
   (precio base y unidad kg o L por producto), condiciones libres y participantes.
   El porcentaje lo fija el jefe (ej. 50% vendedor / 50% promotor) y el promotor se
-  asigna **por vendedor**. Aprueban o rechazan ventas, cierran campañas y registran
-  el pago de bonificación **por persona y campaña** (fecha = fecha de bonificación).
+  asigna **por vendedor**. Aprueban ventas o, al **rechazar**, deben escribir el
+  **motivo** en una ventana flotante (obligatorio, se muestra en la tabla y en el
+  Excel). Cierran campañas y registran el pago de bonificación **por persona y
+  campaña** (fecha = fecha de bonificación).
 - **Coordinador**: ve **todas** las campañas y **todas** las ventas de todos los
   representantes (consolida resultados y presenta los avances, aunque no tenga
   vendedores asignados como responsable) y puede **exportar el Excel**
