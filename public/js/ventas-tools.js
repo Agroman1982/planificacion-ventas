@@ -689,7 +689,7 @@
     });
   }
 
-    var TIPOS_ACTIVIDAD = ['Charla técnica', 'Cierre de venta', 'Cobranza', 'Día de campo', 'Evaluación de ensayo', 'Negociación de venta', 'Otros', 'Presentación de la línea Rainbow', 'Promoción en mostrador', 'Recojo de documentación', 'Recojo mercadería', 'Trabajo de gabinete', 'Transporte de mercadería', 'Validación producto en campo', 'Visita agricultores'];
+    var TIPOS_ACTIVIDAD = ['Charla técnica', 'Cierre de venta', 'Cobranza', 'Día de campo', 'Evaluación de ensayo', 'Negociación de venta', 'Presentación de la línea Rainbow', 'Promoción en mostrador', 'Recojo de documentación', 'Recojo mercadería', 'Sell-out', 'Trabajo de gabinete', 'Transporte de mercadería', 'Validación producto en campo', 'Visita agricultores', 'Otros'];
 
   function abrirTodo() {
     var html = '<div id="vtTodoLista"></div>' +

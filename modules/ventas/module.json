@@ -41,7 +41,7 @@
         "label": "Tipo de Actividad",
         "type": "select",
         "required": true,
-        "options": ["Charla técnica", "Cierre de venta", "Cobranza", "Día de campo", "Evaluación de ensayo", "Negociación de venta", "Otros", "Presentación de la línea Rainbow", "Promoción en mostrador", "Recojo de documentación", "Recojo mercadería", "Trabajo de gabinete", "Transporte de mercadería", "Validación producto en campo", "Visita agricultores"],
+        "options": ["Charla técnica", "Cierre de venta", "Cobranza", "Día de campo", "Evaluación de ensayo", "Negociación de venta", "Presentación de la línea Rainbow", "Promoción en mostrador", "Recojo de documentación", "Recojo mercadería", "Sell-out", "Trabajo de gabinete", "Transporte de mercadería", "Validación producto en campo", "Visita agricultores", "Otros"],
         "default": "Negociación de venta",
         "width": 180,
         "order": 5
